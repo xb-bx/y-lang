@@ -39,7 +39,7 @@ public static class Parser
                 var stack = new StackTrace();
                 fallback.Pos = res.Pos;
                 fallback.File = res.File;
-                Errors.Add(new Error($"Unexpected {res}", res.File, res.Pos));
+                Errors.Add(new Error($"Unexpected {res} at {stack}", res.File, res.Pos));
                 return fallback;
             }
         }
@@ -58,7 +58,10 @@ public static class Parser
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
+            Console.WriteLine(ctx.Pos);
             var m = ctx.Match(MatchGroup.MatchKeyword("fn"), out var t);
+            Console.WriteLine(m);
+            Console.WriteLine(ctx.Pos);
             if(m)
                 res.Add(ParseFunction(ref ctx, t.Pos));
             else 
@@ -96,6 +99,7 @@ public static class Parser
                 .Or(TokenType.Id)
                 .Or(MatchGroup.LBRC), 
         Token.UndefinedId);
+        Console.WriteLine(string.Join(", ", ctx.Errors.Select(x => x.ToString())));
         var st = tok switch
         {
             { Type: TokenType.Keyword, Value: "let", Pos: var pos } => Let(ref ctx, pos),
@@ -141,6 +145,7 @@ public static class Parser
         {
             sts.Add(Statement(ref ctx));
         }
+        Console.WriteLine(ctx.Tokens[ctx.Pos]);
         return new BlockStatement(sts, pos, file);
     }
     private static Statement AssignOrFunctionCall(ref Context ctx)
@@ -156,6 +161,7 @@ public static class Parser
         }
         else
         {
+            ctx.ForceMatch(MatchGroup.Semicolon);
             return new CallStatement(expr);
         }
     }

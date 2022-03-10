@@ -11,6 +11,7 @@ public class Program
         var tokens = Lexer.Tokenize(File.ReadAllText(args[0]), "source.sl", out var lerrors);
         foreach (var token in tokens)
             Console.WriteLine(token);
+        Console.WriteLine(lerrors.Count);
         var statements = Parser.Parse(tokens, "source.sl", out var errors);
         foreach (var statement in statements)
             Console.WriteLine($"{statement.GetType()}\n{Format(((statement as FnDefinitionStatement).Body as BlockStatement).Statements)}");
@@ -140,17 +141,45 @@ public static class Compiler
             Console.WriteLine($"{key} = {val}");
         foreach (var fn in ctx.Fns)
             Console.WriteLine($"{fn}");
+        var res = new List<string>();
         foreach (var fn in ctx.Fns)
-            CompileFn(ref ctx, fn).ForEach(Console.WriteLine);
+        {
+            Console.WriteLine($"Compiling {fn}");
+            var f = CompileFn(ref ctx, fn);
+            Console.WriteLine("VARS");
+            f.Variables.ForEach(Console.WriteLine);
+            f.Info.Compiled.ForEach(Console.WriteLine);
+            res.AddRange(IRCompiler.Compile(f.Info.Compiled, f.Variables, fn));
+        }
+        var result = new StringBuilder();
+        result
+            .AppendLine("format PE64 CONSOLE")
+            .AppendLine("entry __start")
+            .AppendLine("include 'win64axp.inc'")
+            .AppendLine("true = 1")
+            .AppendLine("false = 1")
+            .AppendLine("section '.code' code readable executable")
+            .AppendLine("__start:")
+            .AppendLine("call main")
+            .AppendLine("invoke ExitProcess, 0")
+            .AppendLine(string.Join('\n', res))
+            .AppendLine("section '.idata' import data readable writeable")
+            .AppendLine("library kernel32,'kernel32.dll'")
+            .AppendLine("include 'api\\kernel32.inc'")
+            .AppendLine("include 'api\\user32.inc'");
+        File.WriteAllText(output, result.ToString());
         return ctx.Errors;
     }
     private ref struct FunctionContext
     {
         public List<Variable> Variables = new();
-        public int TempCount = 0;
+        public FnInfo Info;
+        public int TempCount = 0, LabelCount = 0;
         public TypeInfo RetType = null!;
+        public Label NewLabel()
+            => new Label(LabelCount++);
     }
-    private static List<InstructionBase> CompileFn(ref Context ctx, FnInfo info)
+    private static FunctionContext CompileFn(ref Context ctx, FnInfo info)
     {
         if (info.RetType != ctx.Void && !CheckAllCodePathReturns(info.FnDef.Body))
         {
@@ -159,6 +188,8 @@ public static class Compiler
         }
         var res = new List<InstructionBase>();
         var fctx = new FunctionContext();
+        fctx.Info = info;
+        info.Compiled = res;
         foreach(var arg in info.FnDef.Params)
         {
             var type = ctx.GetTypeInfo(arg.Type);
@@ -171,7 +202,7 @@ public static class Compiler
         }
         fctx.RetType = info.RetType;
         CompileStatement(ref fctx, ref ctx, info.FnDef.Body, res);
-        return res;
+        return fctx;
     }
     private static void CompileStatement(ref FunctionContext fctx, ref Context ctx, Statement s, List<InstructionBase> instructions)
     {
@@ -266,6 +297,32 @@ public static class Compiler
                 foreach (var statement in block.Statements)
                     CompileStatement(ref fctx, ref ctx, statement, instructions);
                 break;
+            case InlineAsmStatement asm:
+                {
+                    var ls = new List<string>();
+                    var body = asm.Body;
+                    if (body.Count > 0)
+                    {
+                        int prevLine = body[0].Pos.Line;
+                        var sb = new StringBuilder();
+                        foreach (var token in body)
+                        {
+                            if (prevLine != token.Pos.Line)
+                            {
+                                ls.Add(sb.ToString());
+                                sb.Clear();
+                                prevLine = token.Pos.Line;
+                            }
+                            sb.Append(token.Value).Append(' ');
+                        }
+                        ls.Add(sb.ToString());
+                    }
+                    instructions.Add(new InlineAsmInstruction(ls));
+                }
+                break;
+            case CallStatement call:
+                CompileExpression(call.Call, ref fctx, ref ctx, instructions);
+                break;
             case RetStatement ret:
                 {
                     if (fctx.RetType == ctx.Void)
@@ -302,6 +359,43 @@ public static class Compiler
                     }
                 }
                 break;
+            case IfElseStatement ifElse:
+            {
+                var elsestart = fctx.NewLabel();
+                var end = fctx.NewLabel();
+                var condType = InferExpressionType(ifElse.Condition, ref fctx, ref ctx);
+                if(condType != ctx.Bool)
+                    ctx.Errors.Add(new Error($"Condition must be boolean", ifElse.File, ifElse.Condition.Pos));
+                var cond = CompileExpression(ifElse.Condition, ref fctx, ref ctx, instructions);
+                var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse);
+                instructions.Add(jmp);
+                CompileStatement(ref fctx, ref ctx, ifElse.Body, instructions);
+                var jmptoend = new Jmp(end, null, JumpType.Jmp);
+                instructions.Add(jmptoend);
+                instructions.Add(elsestart);
+                if(ifElse.Else is Statement @else)
+                    CompileStatement(ref fctx, ref ctx, @else, instructions);
+                instructions.Add(end);
+            }
+            break;
+            case WhileStatement wh:
+            {
+                var condition = fctx.NewLabel();
+                var jmptocond = new Jmp(condition, null, JumpType.Jmp);
+                instructions.Add(jmptocond);
+                var loopbody = fctx.NewLabel();
+                instructions.Add(loopbody);
+                CompileStatement(ref fctx, ref ctx, wh.Body, instructions);
+                var condType = InferExpressionType(wh.Cond, ref fctx, ref ctx);
+                
+                if(condType != ctx.Bool)
+                    ctx.Errors.Add(new Error($"Condition must be boolean", wh.File, wh.Cond.Pos));
+                instructions.Add(condition);
+                var cond = CompileExpression(wh.Cond, ref fctx, ref ctx, instructions);
+                var jmpif = new Jmp(loopbody, cond, JumpType.JmpTrue);
+                instructions.Add(jmpif);
+            }
+            break;
         }
     }
     private static Source CompileExpression(Expression expr, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
@@ -328,6 +422,7 @@ public static class Compiler
         if (ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params)) is FnInfo fn)
         {
             var res = new Variable($"__temp_{fctx.TempCount++}", fn.RetType);
+            fctx.Variables.Add(res);
             var args = new List<Source>();
             foreach (var arg in fncall.Args)
                 args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs));
@@ -353,6 +448,7 @@ public static class Compiler
             else
                 destType = new PtrTypeInfo(ptr.Underlaying, ptr.Depth - 1);
             var dest = new Variable($"__temp_{fctx.TempCount++}", destType);
+            fctx.Variables.Add(dest);
             var expr = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instrs);
             var source = CompileExpression(index.Indexed, ref fctx, ref ctx, instrs);
             instrs.Add(new Instruction(Operation.Index, source, expr, dest));
@@ -397,6 +493,7 @@ public static class Compiler
         {
             var res = CompileExpression(neg.Expr, ref fctx, ref ctx, instrs);
             var dest = new Variable($"__temp_{fctx.TempCount++}", type);
+            fctx.Variables.Add(dest);
             var negi = new Instruction(Operation.Neg, res, null, dest);
             instrs.Add(negi);
             return dest;
@@ -430,7 +527,9 @@ public static class Compiler
         }
         Source src1 = CompileExpression(bin.Left, ref fctx, ref ctx, instructions);
         Source src2 = CompileExpression(bin.Right, ref fctx, ref ctx, instructions);
-        var res = new Variable($"__temp_{fctx.TempCount++}", leftType);
+        var type = InferExpressionType(bin, ref fctx, ref ctx);
+        var res = new Variable($"__temp_{fctx.TempCount++}", type);
+        fctx.Variables.Add(res);
         var op = bin.Op switch
         {
             "+" => Operation.Add,
@@ -444,6 +543,8 @@ public static class Compiler
             "<" => Operation.LT,
             "<=" => Operation.LTEQ,
             "==" => Operation.EQEQ,
+            "&&" => Operation.AND,
+            "||" => Operation.OR,
             _ => throw new(bin.Op)
         };
         instructions.Add(new Instruction(op, src1, src2, res));
@@ -600,6 +701,7 @@ public class FnInfo
     public string Name { get; private set; }
     public string NameInAsm { get; private set; }
     public List<TypeInfo> Params { get; private set; }
+    public List<InstructionBase>? Compiled { get; set; }
     public TypeInfo RetType { get; private set; }
     public FnDefinitionStatement FnDef { get; private set; }
     public FnInfo(string name, List<TypeInfo> @params, TypeInfo retType, FnDefinitionStatement fndef)

@@ -115,7 +115,7 @@ public static class Lexer
                     pos++;
                     curPos.Column++;
                     break;
-                case char c when char.IsLetter(c):
+                case char c when char.IsLetter(c) || c == '_':
                     res.Add(Id(ref ctx));
                     break;
                 case '"':
@@ -145,7 +145,7 @@ public static class Lexer
         var sb = ctx.Builder;
         var code = ctx.Code;
         sb.Clear();
-        while (pos < code.Length && char.IsLetterOrDigit(code[pos]))
+        while (pos < code.Length && char.IsLetterOrDigit(code[pos]) || code[pos] == '_')
         {
             sb.Append(code[pos++]);
             curPos.Column++;
