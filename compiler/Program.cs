@@ -9,12 +9,15 @@ public class Program
     public static void Main(string[] args)
     {
         var tokens = Lexer.Tokenize(File.ReadAllText(args[0]), "source.sl", out var lerrors);
-        foreach (var token in tokens)
-            Console.WriteLine(token);
+        foreach (var (token, i) in tokens.Select((x, i) => (x, i)))
+            Console.WriteLine($"#{i}: {token}");
         Console.WriteLine(lerrors.Count);
         var statements = Parser.Parse(tokens, "source.sl", out var errors);
         foreach (var statement in statements)
             Console.WriteLine($"{statement.GetType()}\n{Format(((statement as FnDefinitionStatement).Body as BlockStatement).Statements)}");
+        Console.WriteLine(Format(statements));
+        foreach (var error in errors.Concat(lerrors))
+            Console.WriteLine(error);
         var cerrors = Compiler.Compile(statements, "prog.asm");
         foreach (var error in errors.Concat(lerrors).Concat(cerrors))
             Console.WriteLine(error);
@@ -126,7 +129,8 @@ public static class Compiler
             }
         }
         public TypeInfo Void = null!;
-        public TypeInfo I64 = null!;
+        public TypeInfo I64 = null!, I32 = null!, I16 = null!, I8 = null!;
+        public TypeInfo U64 = null!, U32 = null!, U16 = null!, U8 = null!;
         public TypeInfo Bool = null!;
     }
     public static List<Error> Compile(List<Statement> statements, string output)
@@ -156,15 +160,15 @@ public static class Compiler
             .AppendLine("format PE64 CONSOLE")
             .AppendLine("entry __start")
             .AppendLine("include 'win64axp.inc'")
-            .AppendLine("true = 1")
-            .AppendLine("false = 1")
+            .AppendLine("True = 1")
+            .AppendLine("False = 0")
             .AppendLine("section '.code' code readable executable")
             .AppendLine("__start:")
             .AppendLine("call main")
             .AppendLine("invoke ExitProcess, 0")
             .AppendLine(string.Join('\n', res))
             .AppendLine("section '.idata' import data readable writeable")
-            .AppendLine("library kernel32,'kernel32.dll'")
+            .AppendLine("library kernel32,'kernel32.dll', user32, 'user32.dll'")
             .AppendLine("include 'api\\kernel32.inc'")
             .AppendLine("include 'api\\user32.inc'");
         File.WriteAllText(output, result.ToString());
@@ -190,10 +194,10 @@ public static class Compiler
         var fctx = new FunctionContext();
         fctx.Info = info;
         info.Compiled = res;
-        foreach(var arg in info.FnDef.Params)
+        foreach (var arg in info.FnDef.Params)
         {
             var type = ctx.GetTypeInfo(arg.Type);
-            if(type is null)
+            if (type is null)
             {
                 type = ctx.I64;
                 ctx.Errors.Add(new Error($"Undefined type {arg.Type}", arg.File, arg.Type.Pos));
@@ -221,21 +225,21 @@ public static class Compiler
                         ctx.Errors.Add(new Error($"Undefined type {let.Type}", let.Type.File, let.Type.Pos));
                         return;
                     }
-                    var valueType = InferExpressionType(let.Value, ref fctx, ref ctx);
+                    var valueType = InferExpressionType(let.Value, ref fctx, ref ctx, letType);
                     if (!letType.Equals(valueType))
                     {
                         ctx.Errors.Add(new Error($"Cannot assign value of type {valueType} to variable of type {letType}", let.File, let.Value.Pos));
                         return;
                     }
-                    var res = CompileExpression(let.Value, ref fctx, ref ctx, instructions);
+                    var res = CompileExpression(let.Value, ref fctx, ref ctx, instructions, valueType);
                     var varr = new Variable(let.Name, letType);
                     fctx.Variables.Add(varr);
                     instructions.Add(new Instruction(Operation.Equals, res, null, varr));
                 }
                 else
                 {
-                    var valueType = InferExpressionType(let.Value, ref fctx, ref ctx);
-                    var res = CompileExpression(let.Value, ref fctx, ref ctx, instructions);
+                    var valueType = InferExpressionType(let.Value, ref fctx, ref ctx, null);
+                    var res = CompileExpression(let.Value, ref fctx, ref ctx, instructions, valueType);
                     var varr = new Variable(let.Name, valueType);
                     fctx.Variables.Add(varr);
                     instructions.Add(new Instruction(Operation.Equals, res, null, varr));
@@ -247,7 +251,7 @@ public static class Compiler
                     {
                         if (fctx.Variables.FirstOrDefault(x => x.Name == varr.Name) is Variable v)
                         {
-                            var type = InferExpressionType(ass.Value, ref fctx, ref ctx);
+                            var type = InferExpressionType(ass.Value, ref fctx, ref ctx, v.Type);
                             if (!type.Equals(v.Type))
                             {
                                 ctx.Errors.Add(
@@ -256,7 +260,7 @@ public static class Compiler
                                     )
                                 );
                             }
-                            var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions);
+                            var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, v.Type);
                             instructions.Add(new Instruction(Operation.Equals, res, null, v));
                         }
                         else
@@ -266,30 +270,15 @@ public static class Compiler
                     }
                     else if (ass.Expr is DereferenceExpression deref)
                     {
-                        var valueType = InferExpressionType(ass.Value, ref fctx, ref ctx);
-                        if (deref.DerefDepth == 1)
+                        var type = InferExpressionType(deref, ref fctx, ref ctx, null);
+                        var valueType = InferExpressionType(ass.Value, ref fctx, ref ctx, type);
+                        if (!type.Equals(valueType))
                         {
-                            var type = InferExpressionType(deref.Expr, ref fctx, ref ctx);
-                            if (!type.Equals(valueType))
-                            {
-                                ctx.Errors.Add(new Error($"Cannot store value of type {valueType} to {type}", ass.File, ass.Pos));
-                            }
-                            var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions);
-                            var destexpr = CompileExpression(deref.Expr, ref fctx, ref ctx, instructions) as Variable;
-                            instructions.Add(new Instruction(Operation.SetRef, res, null, destexpr));
+                            ctx.Errors.Add(new Error($"Cannot store value of type {valueType} to {type}", ass.File, ass.Pos));
                         }
-                        else if (deref.DerefDepth > 1)
-                        {
-                            var newderef = new DereferenceExpression(deref.Expr, deref.DerefDepth - 1, deref.Pos);
-                            PtrTypeInfo derefType = InferExpressionType(newderef, ref fctx, ref ctx) as PtrTypeInfo;
-                            if (!derefType.Equals(valueType))
-                            {
-                                ctx.Errors.Add(new Error($"Cannot store value of type {valueType} to {derefType}", ass.File, ass.Pos));
-                            }
-                            var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions);
-                            var dest = CompileExpression(newderef, ref fctx, ref ctx, instructions) as Variable;
-                            instructions.Add(new Instruction(Operation.SetRef, res, null, dest));
-                        }
+                        var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, valueType);
+                        var destexpr = CompileExpression(deref.Expr, ref fctx, ref ctx, instructions, null) as Variable;
+                        instructions.Add(new Instruction(Operation.SetRef, res, null, destexpr));
                     }
                 }
                 break;
@@ -321,7 +310,7 @@ public static class Compiler
                 }
                 break;
             case CallStatement call:
-                CompileExpression(call.Call, ref fctx, ref ctx, instructions);
+                CompileExpression(call.Call, ref fctx, ref ctx, instructions, null);
                 break;
             case RetStatement ret:
                 {
@@ -338,10 +327,10 @@ public static class Compiler
                     }
                     else
                     {
-                        var valueType = InferExpressionType(ret.Value, ref fctx, ref ctx);
+                        var valueType = InferExpressionType(ret.Value, ref fctx, ref ctx, fctx.RetType);
                         if (valueType.Equals(fctx.RetType))
                         {
-                            var res = CompileExpression(ret.Value, ref fctx, ref ctx, instructions);
+                            var res = CompileExpression(ret.Value, ref fctx, ref ctx, instructions, fctx.RetType);
                             instructions.Add(new Instruction(Operation.Ret, res, null, null!));
                         }
                         else
@@ -360,121 +349,120 @@ public static class Compiler
                 }
                 break;
             case IfElseStatement ifElse:
-            {
-                var elsestart = fctx.NewLabel();
-                var end = fctx.NewLabel();
-                var condType = InferExpressionType(ifElse.Condition, ref fctx, ref ctx);
-                if(condType != ctx.Bool)
-                    ctx.Errors.Add(new Error($"Condition must be boolean", ifElse.File, ifElse.Condition.Pos));
-                var cond = CompileExpression(ifElse.Condition, ref fctx, ref ctx, instructions);
-                var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse);
-                instructions.Add(jmp);
-                CompileStatement(ref fctx, ref ctx, ifElse.Body, instructions);
-                var jmptoend = new Jmp(end, null, JumpType.Jmp);
-                instructions.Add(jmptoend);
-                instructions.Add(elsestart);
-                if(ifElse.Else is Statement @else)
-                    CompileStatement(ref fctx, ref ctx, @else, instructions);
-                instructions.Add(end);
-            }
-            break;
+                {
+                    var elsestart = fctx.NewLabel();
+                    var end = fctx.NewLabel();
+                    var condType = InferExpressionType(ifElse.Condition, ref fctx, ref ctx, ctx.Bool);
+                    if (condType != ctx.Bool)
+                        ctx.Errors.Add(new Error($"Condition must be boolean", ifElse.File, ifElse.Condition.Pos));
+                    var cond = CompileExpression(ifElse.Condition, ref fctx, ref ctx, instructions, ctx.Bool);
+                    var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse);
+                    instructions.Add(jmp);
+                    CompileStatement(ref fctx, ref ctx, ifElse.Body, instructions);
+                    var jmptoend = new Jmp(end, null, JumpType.Jmp);
+                    instructions.Add(jmptoend);
+                    instructions.Add(elsestart);
+                    if (ifElse.Else is Statement @else)
+                        CompileStatement(ref fctx, ref ctx, @else, instructions);
+                    instructions.Add(end);
+                }
+                break;
             case WhileStatement wh:
-            {
-                var condition = fctx.NewLabel();
-                var jmptocond = new Jmp(condition, null, JumpType.Jmp);
-                instructions.Add(jmptocond);
-                var loopbody = fctx.NewLabel();
-                instructions.Add(loopbody);
-                CompileStatement(ref fctx, ref ctx, wh.Body, instructions);
-                var condType = InferExpressionType(wh.Cond, ref fctx, ref ctx);
-                
-                if(condType != ctx.Bool)
-                    ctx.Errors.Add(new Error($"Condition must be boolean", wh.File, wh.Cond.Pos));
-                instructions.Add(condition);
-                var cond = CompileExpression(wh.Cond, ref fctx, ref ctx, instructions);
-                var jmpif = new Jmp(loopbody, cond, JumpType.JmpTrue);
-                instructions.Add(jmpif);
-            }
-            break;
+                {
+                    var condition = fctx.NewLabel();
+                    var jmptocond = new Jmp(condition, null, JumpType.Jmp);
+                    instructions.Add(jmptocond);
+                    var loopbody = fctx.NewLabel();
+                    instructions.Add(loopbody);
+                    CompileStatement(ref fctx, ref ctx, wh.Body, instructions);
+                    var condType = InferExpressionType(wh.Cond, ref fctx, ref ctx, ctx.Bool);
+                    if (condType != ctx.Bool)
+                        ctx.Errors.Add(new Error($"Condition must be boolean", wh.File, wh.Cond.Pos));
+                    instructions.Add(condition);
+                    var cond = CompileExpression(wh.Cond, ref fctx, ref ctx, instructions, ctx.Bool);
+                    var jmpif = new Jmp(loopbody, cond, JumpType.JmpTrue);
+                    instructions.Add(jmpif);
+                }
+                break;
         }
     }
-    private static Source CompileExpression(Expression expr, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    private static Source CompileExpression(Expression expr, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions, TypeInfo? targetType)
     {
         return expr switch
         {
-            BinaryExpression bin => CompileBinary(bin, ref fctx, ref ctx, instructions),
-            IntegerExpression i => new Constant<long>(i.Value),
-            VariableExpression varr => CompileVar(varr, ref fctx, ref ctx),
-            BoolExpression b => new Constant<bool>(b.Value),
-            NegateExpression neg => CompileNeg(neg, ref fctx, ref ctx, instructions),
+            BinaryExpression bin => CompileBinary(bin, ref fctx, ref ctx, instructions, targetType),
+            IntegerExpression i => new Constant<long>(i.Value, ctx.I64),
+            VariableExpression varr => CompileVar(varr, ref fctx, ref ctx, targetType),
+            BoolExpression b => new Constant<bool>(b.Value, ctx.Bool),
+            NegateExpression neg => CompileNeg(neg, ref fctx, ref ctx, instructions, targetType),
             RefExpression r => CompileRef(r, ref fctx, ref ctx, instructions),
             IndexExpression index => CompileIndex(index, ref fctx, ref ctx, instructions),
             FunctionCallExpression fncall => CompileFnCall(fncall, ref fctx, ref ctx, instructions),
+            DereferenceExpression deref => CompileDeref(deref, ref fctx, ref ctx, instructions),
         };
     }
+
+    private static Source CompileDeref(DereferenceExpression deref, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+        var type = InferExpressionType(deref, ref fctx, ref ctx, null);
+        var dest = new Variable($"__temp_{fctx.TempCount++}", type);
+        fctx.Variables.Add(dest);
+        var res = CompileExpression(deref.Expr, ref fctx, ref ctx, instructions, type);
+        instructions.Add(new Instruction(Operation.Deref, res, null, dest));
+        return dest;
+    }
+
     private static Source CompileFnCall(FunctionCallExpression fncall, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instrs)
     {
         var types = new List<TypeInfo>();
         foreach (var arg in fncall.Args)
         {
-            types.Add(InferExpressionType(arg, ref fctx, ref ctx));
+            types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
         }
         if (ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params)) is FnInfo fn)
         {
             var res = new Variable($"__temp_{fctx.TempCount++}", fn.RetType);
             fctx.Variables.Add(res);
             var args = new List<Source>();
-            foreach (var arg in fncall.Args)
-                args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs));
+            foreach (var (arg, type) in fncall.Args.Zip(fn.Params))
+                args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs, type));
             instrs.Add(new FnCallInstruction(fn, args, res));
             return res;
         }
         else
         {
             ctx.Errors.Add(new Error($"Undefined function {fncall.Name}", fncall.File, fncall.Pos));
-            return new Constant<long>(0);
+            return new Constant<long>(0, ctx.I64);
         }
     }
     private static Source CompileIndex(IndexExpression index, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instrs)
     {
         if (index.Indexes.Count > 1)
             throw new NotImplementedException();
-        var type = InferExpressionType(index.Indexed, ref fctx, ref ctx);
+        var type = InferExpressionType(index.Indexed, ref fctx, ref ctx, null);
         if (type is PtrTypeInfo ptr)
         {
-            TypeInfo destType = null!;
-            if (ptr.Depth == 1)
-                destType = ptr.Underlaying;
-            else
-                destType = new PtrTypeInfo(ptr.Underlaying, ptr.Depth - 1);
+            TypeInfo destType = ptr.Underlaying;
             var dest = new Variable($"__temp_{fctx.TempCount++}", destType);
             fctx.Variables.Add(dest);
-            var expr = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instrs);
-            var source = CompileExpression(index.Indexed, ref fctx, ref ctx, instrs);
+            var expr = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instrs, ctx.U64);
+            var source = CompileExpression(index.Indexed, ref fctx, ref ctx, instrs, ptr);
             instrs.Add(new Instruction(Operation.Index, source, expr, dest));
             return dest;
         }
         else
         {
             ctx.Errors.Add(new Error($"Cannot index value of type {type}", index.File, index.Pos));
-            return new Constant<long>(0);
+            return new Constant<long>(0, ctx.I64);
         }
     }
     private static Source CompileRef(RefExpression r, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instrs)
     {
         if (r.Expr is VariableExpression varr)
         {
-            var type = InferExpressionType(varr, ref fctx, ref ctx);
-            PtrTypeInfo destType = null!;
-            if (type is PtrTypeInfo ptr)
-            {
-                destType = new PtrTypeInfo(ptr.Underlaying, ptr.Depth + 1);
-            }
-            else
-            {
-                destType = new PtrTypeInfo(type, 1);
-            }
-            var v = CompileExpression(varr, ref fctx, ref ctx, instrs);
+            var type = InferExpressionType(varr, ref fctx, ref ctx, null);
+            PtrTypeInfo destType = new PtrTypeInfo(type, 0);
+            var v = CompileExpression(varr, ref fctx, ref ctx, instrs, type);
             var res = new Variable($"__temp_{fctx.TempCount++}", destType);
             fctx.Variables.Add(res);
             instrs.Add(new Instruction(Operation.Ref, v, null, res));
@@ -486,12 +474,12 @@ public static class Compiler
         }
 
     }
-    private static Source CompileNeg(NegateExpression neg, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instrs)
+    private static Source CompileNeg(NegateExpression neg, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instrs, TypeInfo? target)
     {
-        var type = InferExpressionType(neg.Expr, ref fctx, ref ctx);
-        if (type.Equals(ctx.I64))
+        var type = InferExpressionType(neg.Expr, ref fctx, ref ctx, target);
+        if (type.Equals(ctx.I64) || type.Equals(ctx.I32) || type.Equals(ctx.I16) || type.Equals(ctx.I8))
         {
-            var res = CompileExpression(neg.Expr, ref fctx, ref ctx, instrs);
+            var res = CompileExpression(neg.Expr, ref fctx, ref ctx, instrs, type);
             var dest = new Variable($"__temp_{fctx.TempCount++}", type);
             fctx.Variables.Add(dest);
             var negi = new Instruction(Operation.Neg, res, null, dest);
@@ -501,10 +489,10 @@ public static class Compiler
         else
         {
             ctx.Errors.Add(new Error($"Cannot negate value of type {type}", neg.File, neg.Pos));
-            return new Constant<long>(0);
+            return new Variable("none", target ?? type);
         }
     }
-    private static Source CompileVar(VariableExpression varr, ref FunctionContext fctx, ref Context ctx)
+    private static Source CompileVar(VariableExpression varr, ref FunctionContext fctx, ref Context ctx, TypeInfo? target)
     {
         if (fctx.Variables.FirstOrDefault(x => x.Name == varr.Name) is Variable v)
         {
@@ -513,21 +501,22 @@ public static class Compiler
         else
         {
             ctx.Errors.Add(new Error($"Undefined variable {varr.Name}", varr.File, varr.Pos));
-            return new Constant<long>(0);
+            return new Constant<long>(0, target ?? ctx.I64);
         }
     }
 
-    private static Source CompileBinary(BinaryExpression bin, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    private static Source CompileBinary(BinaryExpression bin, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions, TypeInfo? target)
     {
-        var leftType = InferExpressionType(bin.Left, ref fctx, ref ctx);
-        var rightType = InferExpressionType(bin.Right, ref fctx, ref ctx);
-        if (leftType != rightType)
+        var leftType = InferExpressionType(bin.Left, ref fctx, ref ctx, target);
+        var rightType = InferExpressionType(bin.Right, ref fctx, ref ctx, target);
+        if (!((leftType is PtrTypeInfo || rightType is PtrTypeInfo) && !(leftType is PtrTypeInfo && rightType is PtrTypeInfo)) && 
+                leftType != rightType)
         {
             ctx.Errors.Add(new Error($"Cannot apply operator '{bin.Op}'", bin.File, bin.Pos));
         }
-        Source src1 = CompileExpression(bin.Left, ref fctx, ref ctx, instructions);
-        Source src2 = CompileExpression(bin.Right, ref fctx, ref ctx, instructions);
-        var type = InferExpressionType(bin, ref fctx, ref ctx);
+        Source src1 = CompileExpression(bin.Left, ref fctx, ref ctx, instructions, target);
+        Source src2 = CompileExpression(bin.Right, ref fctx, ref ctx, instructions, target);
+        var type = InferExpressionType(bin, ref fctx, ref ctx, target);
         var res = new Variable($"__temp_{fctx.TempCount++}", type);
         fctx.Variables.Add(res);
         var op = bin.Op switch
@@ -551,34 +540,80 @@ public static class Compiler
         return res;
     }
 
-    private static TypeInfo InferExpressionType(Expression expr, ref FunctionContext fctx, ref Context ctx)
+    private static TypeInfo InferInt(IntegerExpression i, ref FunctionContext fctx, ref Context ctx, TypeInfo? target)
+    {
+        if (target is null)
+            return ctx.I32;
+        if (target.Equals(ctx.I64))
+        {
+            return ctx.I64;
+        }
+        else if (target.Equals(ctx.I32))
+        {
+            if (i.Value > int.MaxValue)
+            {
+                ctx.Errors.Add(new Error("Value out of range", i.File, i.Pos));
+            }
+            return ctx.I32;
+        }
+        else if (target.Equals(ctx.U32))
+        {
+            if (i.Value > uint.MaxValue)
+            {
+                ctx.Errors.Add(new Error("Value out of range", i.File, i.Pos));
+            }
+            return ctx.U32;
+        }
+        else if (target.Equals(ctx.I16))
+        {
+            if (i.Value > short.MaxValue)
+            {
+                ctx.Errors.Add(new Error("Value out of range", i.File, i.Pos));
+            }
+            return ctx.I16;
+        }
+        else if (target.Equals(ctx.U16))
+        {
+            if (i.Value > ushort.MaxValue)
+            {
+                ctx.Errors.Add(new Error("Value out of range", i.File, i.Pos));
+            }
+            return ctx.U16;
+        }
+        else if (target.Equals(ctx.I8))
+        {
+            if (i.Value > sbyte.MaxValue)
+            {
+                ctx.Errors.Add(new Error("Value out of range", i.File, i.Pos));
+            }
+            return ctx.I8;
+        }
+        else if (target.Equals(ctx.U8))
+        {
+            if (i.Value > byte.MaxValue)
+            {
+                ctx.Errors.Add(new Error("Value out of range", i.File, i.Pos));
+            }
+            return ctx.U8;
+        }
+        return ctx.I32;
+    }
+    private static TypeInfo InferExpressionType(Expression expr, ref FunctionContext fctx, ref Context ctx, TypeInfo? target)
     {
         switch (expr)
         {
-            case IntegerExpression:
-                return ctx.I64;
+            case IntegerExpression i:
+                return InferInt(i, ref fctx, ref ctx, target);
             case BoolExpression b:
                 return ctx.Bool;
             case NegateExpression neg:
-                return InferExpressionType(neg.Expr, ref fctx, ref ctx);
+                return InferExpressionType(neg.Expr, ref fctx, ref ctx, target);
             case DereferenceExpression deref:
                 {
-                    var underlaying = InferExpressionType(deref.Expr, ref fctx, ref ctx);
+                    var underlaying = InferExpressionType(deref.Expr, ref fctx, ref ctx, target);
                     if (underlaying is PtrTypeInfo ptr)
                     {
-                        if (deref.DerefDepth > ptr.Depth)
-                        {
-                            ctx.Errors.Add(new Error($"Cannot dereference type {ptr.Underlaying}", expr.File, expr.Pos));
-                            return ptr.Underlaying;
-                        }
-                        else if (deref.DerefDepth < ptr.Depth)
-                        {
-                            return new PtrTypeInfo(ptr.Underlaying, ptr.Depth - deref.DerefDepth);
-                        }
-                        else
-                        {
-                            return ptr.Underlaying;
-                        }
+                        return ptr.Underlaying;
                     }
                     else
                     {
@@ -597,25 +632,22 @@ public static class Compiler
                     return ctx.I64;
                 }
             case RefExpression r:
-                return InferExpressionType(r.Expr, ref fctx, ref ctx) switch
+                return InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
                 {
-                    PtrTypeInfo ptr => new PtrTypeInfo(ptr.Underlaying, ptr.Depth + 1),
+                    PtrTypeInfo ptr => new PtrTypeInfo(ptr, 0),
                     TypeInfo t => new PtrTypeInfo(t, 1),
                 };
             case BinaryExpression bin:
                 if (bin.Op is "==" or "!=" or "<=" or "<" or ">" or ">=" or "&&" or "||")
                     return ctx.Bool;
                 else
-                    return InferExpressionType(bin.Left, ref fctx, ref ctx);
+                    return InferExpressionType(bin.Left, ref fctx, ref ctx, target);
             case IndexExpression index:
                 {
-                    var type = InferExpressionType(index.Indexed, ref fctx, ref ctx);
+                    var type = InferExpressionType(index.Indexed, ref fctx, ref ctx, null);
                     if (type is PtrTypeInfo ptr)
                     {
-                        if (ptr.Depth == 1)
-                            return ptr.Underlaying;
-                        else
-                            return new PtrTypeInfo(ptr.Underlaying, ptr.Depth - 1);
+                        return ptr.Underlaying;
                     }
                     else
                     {
@@ -629,17 +661,17 @@ public static class Compiler
                     var types = new List<TypeInfo>();
                     foreach (var arg in fncall.Args)
                     {
-                        types.Add(InferExpressionType(arg, ref fctx, ref ctx));
+                        types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
                     }
                     if (ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params)) is FnInfo fn)
-                    { 
+                    {
                         return fn.RetType;
                     }
                     else
                     {
                         ctx.Errors.Add(new Error($"Undefined function {fncall.Name}", fncall.File, fncall.Pos));
                         return ctx.Void;
-                    } 
+                    }
                 }
             default: throw new Exception($"OOOOOO NOOOO {expr.GetType()}");
         }
@@ -687,12 +719,26 @@ public static class Compiler
     {
         var types = new[] {
             new TypeInfo("i64", 8),
+            new TypeInfo("i32", 4),
+            new TypeInfo("i16", 2),
+            new TypeInfo("i8", 1),
+            new TypeInfo("u64", 8),
+            new TypeInfo("u32", 4),
+            new TypeInfo("u16", 2),
+            new TypeInfo("u8", 1),
             new TypeInfo("void", 0),
             new TypeInfo("bool", 1),
         };
         ctx.Types = types.ToDictionary(x => x.Name);
         ctx.Void = ctx.Types["void"];
         ctx.I64 = ctx.Types["i64"];
+        ctx.I32 = ctx.Types["i32"];
+        ctx.I16 = ctx.Types["i16"];
+        ctx.I8 = ctx.Types["i8"];
+        ctx.U64 = ctx.Types["u64"];
+        ctx.U32 = ctx.Types["u32"];
+        ctx.U16 = ctx.Types["u16"];
+        ctx.U8 = ctx.Types["u8"];
         ctx.Bool = ctx.Types["bool"];
     }
 }
@@ -733,21 +779,22 @@ public class TypeInfo
 public class PtrTypeInfo : TypeInfo
 {
     public TypeInfo Underlaying { get; private set; }
-    public int Depth { get; private set; }
+    //    public int Depth { get; private set; }
     public PtrTypeInfo(TypeInfo underlaying, int depth)
-        => (Underlaying, Size, Depth, Name) = (underlaying, 8, depth, $"{new string('*', depth)}{underlaying.Name}");
+        => (Underlaying, Size, /*Depth, */ Name) = (underlaying, 8, /*depth,*/ $"{new string('*', depth)}{underlaying.Name}");
 
     public override bool Equals(object? obj)
     {
         return obj is PtrTypeInfo info &&
-               EqualityComparer<TypeInfo>.Default.Equals(Underlaying, info.Underlaying) &&
-               Depth == info.Depth;
+               EqualityComparer<TypeInfo>.Default.Equals(Underlaying, info.Underlaying); //&& Depth == info.Depth;
     }
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(base.GetHashCode(), Name, Size, Underlaying, Depth);
+        return HashCode.Combine(base.GetHashCode(), Name, Size, Underlaying /*, Depth*/);
     }
+    public override string ToString()
+        => $"*{Underlaying}";
 }
 
 

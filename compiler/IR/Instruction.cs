@@ -17,13 +17,15 @@ public class Instruction : InstructionBase
 }
 public abstract class Source
 {
+    public abstract TypeInfo Type { get; }
 }
 public class Constant<T> : Source
     where T : notnull
 {
     public T Value { get; private set; }
-    public Constant(T value)
-        => Value = value;
+    public override TypeInfo Type { get; }
+    public Constant(T value, TypeInfo type)
+        => (Value, Type) = (value, type);
     public override string ToString()
         => Value!.ToString()!;
 }
@@ -61,7 +63,7 @@ public enum Operation
 public class Variable : Source
 {
     public string Name { get; private set; }
-    public TypeInfo Type { get; private set; }
+    public override TypeInfo Type { get; }
     public int Offset { get; set; }
     public bool IsArg { get; private set; }
     public Variable(string name, TypeInfo type, bool isArg = false)
@@ -180,7 +182,7 @@ public class IRCompiler
                 case Instruction inst: CompileInstr(inst, lines, vars, fn); break;
             }
         }
-        if(fn.RetType.Name == "void")
+        if (fn.RetType.Name == "void")
         {
             lines.Add("mov rsp, rbp");
             lines.Add("pop rbp");
@@ -207,10 +209,60 @@ public class IRCompiler
 
                 }
                 break;
+            case var op when op is Operation.Add or Operation.Sub &&
+                ((instr.First?.Type is PtrTypeInfo
+                || instr.Second?.Type is PtrTypeInfo)
+                && !(instr.First?.Type is PtrTypeInfo && instr.Second?.Type is PtrTypeInfo)):
+                {
+                    Source ptr = null!;
+                    Source alignment = null!;
+                    PtrTypeInfo ptrType = null!;
+                    if (instr.First.Type is PtrTypeInfo p)
+                    {
+                        ptrType = p;
+                        ptr = instr.First!;
+                        alignment = instr.Second!;
+                    }
+                    else if (instr.Second.Type is PtrTypeInfo pt)
+                    {
+                        ptrType = pt;
+                        ptr = instr.Second!;
+                        alignment = instr.First!;
+                    }
+                    CompileSource(ptr, lines, "qword", "rax");
+                    var (size, reg) = alignment.Type.Size switch
+                    {
+                        1 => ("byte", "bl"),
+                        2 => ("word", "bx"),
+                        4 => ("dword", "ebx"),
+                        8 => ("qword", "rbx"),
+                    };
+                    lines.Add("mov rbx, 0");
+                    CompileSource(alignment, lines, size, reg);
+                    var opp = op is Operation.Add ? "add" : "sub";
+                    lines.Add($"shl {reg}, {(int)Math.Log2(ptrType.Underlaying.Size)}");
+                    lines.Add($"{opp} rax, rbx");
+                    lines.Add($"mov qword[rbp + {instr.Destination.Offset}], rax");
+                }
+                break;
+            case Operation.Div:
+                {
+                    var (size, reg1, reg2) = instr.Destination.Type.Size switch
+                    {
+                        1 => ("byte", "al", "bl"),
+                        2 => ("word", "ax", "bx"),
+                        4 => ("dword", "eax", "ebx"),
+                        8 => ("qword", "rax", "rbx"),
+                    };
+                    CompileSource(instr.First, lines, size, reg1);
+                    CompileSource(instr.Second, lines, size, reg2);
+                    lines.Add("mov rdx, 0");
+                    lines.Add($"idiv {reg2}");
+                }
+                break;
             case Operation.Add:
             case Operation.Sub:
             case Operation.Mul:
-            case Operation.Div:
             case Operation.Shl:
             case Operation.Shr:
                 {
@@ -227,7 +279,6 @@ public class IRCompiler
                     {
                         Operation.Add => "add",
                         Operation.Sub => "sub",
-                        Operation.Div => "idiv",
                         Operation.Mul => "imul",
                         Operation.Shl => "shl",
                         Operation.Shr => "shr",
@@ -243,7 +294,7 @@ public class IRCompiler
             case Operation.GTEQ:
             case Operation.EQEQ:
                 {
-                    var (size, reg1, reg2) = instr.Destination.Type.Size switch
+                    var (size, reg1, reg2) = instr.First.Type.Size switch
                     {
                         1 => ("byte", "al", "bl"),
                         2 => ("word", "ax", "bx"),
@@ -278,10 +329,48 @@ public class IRCompiler
                             8 => ("qword", "rax"),
                         };
                         CompileSource(s, lines, size, reg);
-                        lines.Add("mov rsp, rbp");
-                        lines.Add("pop rbp");
-                        lines.Add("ret");
                     }
+                    lines.Add("mov rsp, rbp");
+                    lines.Add("pop rbp");
+                    lines.Add("ret");
+                }
+                break;
+            case Operation.Ref:
+                {
+                    if (instr.First is Variable v)
+                    {
+                        lines.Add($"lea rax, [rbp + {v.Offset}]");
+                        lines.Add($"mov qword[rbp + {instr.Destination.Offset}], rax");
+                    }
+                }
+                break;
+            case Operation.SetRef:
+                {
+                    var (size, reg) = (instr.Destination.Type as PtrTypeInfo)!.Underlaying.Size switch
+                    {
+                        1 => ("byte", "al"),
+                        2 => ("word", "ax"),
+                        4 => ("dword", "eax"),
+                        8 => ("qword", "rax"),
+                    };
+                    CompileSource(instr.First, lines, size, reg);
+                    lines.Add($"mov rbx, qword[rbp + {instr.Destination.Offset}]");
+                    lines.Add($"mov {size}[rbx], {reg}");
+                }
+                break;
+            case Operation.Deref:
+                {
+                    var (size, reg) = instr.Destination.Type.Size switch
+                    {
+                        1 => ("byte", "al"),
+                        2 => ("word", "ax"),
+                        4 => ("dword", "eax"),
+                        8 => ("qword", "rax"),
+                    };
+                    var s = instr.First as Variable;
+                    lines.Add($"mov rbx, qword[rbp + {s.Offset}]");
+                    lines.Add($"mov {reg}, {size}[rbx]");
+                    lines.Add($"mov {size}[rbp + {instr.Destination.Offset}], {reg}");
                 }
                 break;
         }

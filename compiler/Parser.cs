@@ -58,10 +58,7 @@ public static class Parser
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
-            Console.WriteLine(ctx.Pos);
             var m = ctx.Match(MatchGroup.MatchKeyword("fn"), out var t);
-            Console.WriteLine(m);
-            Console.WriteLine(ctx.Pos);
             if(m)
                 res.Add(ParseFunction(ref ctx, t.Pos));
             else 
@@ -99,7 +96,6 @@ public static class Parser
                 .Or(TokenType.Id)
                 .Or(MatchGroup.LBRC), 
         Token.UndefinedId);
-        Console.WriteLine(string.Join(", ", ctx.Errors.Select(x => x.ToString())));
         var st = tok switch
         {
             { Type: TokenType.Keyword, Value: "let", Pos: var pos } => Let(ref ctx, pos),
@@ -145,7 +141,6 @@ public static class Parser
         {
             sts.Add(Statement(ref ctx));
         }
-        Console.WriteLine(ctx.Tokens[ctx.Pos]);
         return new BlockStatement(sts, pos, file);
     }
     private static Statement AssignOrFunctionCall(ref Context ctx)
@@ -168,9 +163,13 @@ public static class Parser
     private static Statement DerefStatement(ref Context ctx)
     {
         ctx.Pos--;
+        Console.WriteLine(ctx.Pos);
         var expr = Parser.Deref(ref ctx);
+        Console.WriteLine(ctx.Pos);
         ctx.ForceMatch(MatchGroup.EQ);
+        Console.WriteLine(ctx.Pos);
         var value = Expression(ref ctx);
+        Console.WriteLine($"value = {value}");
         ctx.ForceMatch(MatchGroup.Semicolon);
         return new AssignStatement(expr, value);
     }
@@ -332,21 +331,13 @@ public static class Parser
     private static Expression Deref(ref Context ctx)
     {
         Position pos = default;
-        int derefCount = 0;
-        while (ctx.Match(MatchGroup.MatchOp("*"), out var op))
+        Expression expr = null!;
+        if(ctx.Match(MatchGroup.MatchOp("*"), out var op))
         {
-            if (derefCount == 1)
-                pos = op.Pos;
-            derefCount++;
+            pos = op.Pos;
+            expr = Deref(ref ctx);
         }
-        if (derefCount > 0)
-        {
-            return new DereferenceExpression(Ref(ref ctx), derefCount, pos);
-        }
-        else
-        {
-            return Ref(ref ctx);
-        }
+        return expr is null ? Ref(ref ctx) : new DereferenceExpression(expr, pos);
     }
     private static Expression Ref(ref Context ctx)
     {
