@@ -154,7 +154,6 @@ fn input(dirx: *i32, diry: *i32): void
     let right = 0x27;
     let up = 0x26;
     let down = 0x28;
-    let minusone = 2 - 1;
     if bnot(get_key_state(left) == 0) 
     {
         if bnot(*dirx == 1) 
@@ -165,7 +164,8 @@ fn input(dirx: *i32, diry: *i32): void
     }
     else if bnot(get_key_state(right) == 0) 
     {
-        if bnot(*dirx == 1 - 2) 
+        let f = (*dirx == mins);
+        if bnot(*dirx == -1)
         {
             *dirx = 1;
             *diry = 0;
@@ -181,7 +181,7 @@ fn input(dirx: *i32, diry: *i32): void
     }
     else if bnot(get_key_state(down) == 0)
     {
-        if bnot(*diry == 1 - 2) 
+        if bnot(*diry == -1) 
         {
             *dirx = 0;
             *diry = 1;

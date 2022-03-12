@@ -311,6 +311,9 @@ public static class Compiler
                 break;
             case CallStatement call:
                 CompileExpression(call.Call, ref fctx, ref ctx, instructions, null);
+                var fnca = instructions.Last() as FnCallInstruction;
+                fctx.Variables.Remove(fnca.Dest);
+                fnca!.Dest = null;
                 break;
             case RetStatement ret:
                 {

@@ -75,7 +75,7 @@ public class FnCallInstruction : InstructionBase
 {
     public FnInfo Fn { get; private set; }
     public List<Source> Args { get; private set; }
-    public Variable Dest { get; private set; }
+    public Variable? Dest { get; set; }
     public FnCallInstruction(FnInfo fn, List<Source> args, Variable dest)
         => (Fn, Args, Dest) = (fn, args, dest);
     public override string ToString()
@@ -174,7 +174,8 @@ public class IRCompiler
                                 lines.Add($"push {arg}");
                             }
                         lines.Add($"call {fncall.Fn.NameInAsm}");
-                        lines.Add($"mov qword[rbp + {fncall.Dest.Offset}], rax");
+                        if(fncall.Dest is not null)
+                            lines.Add($"mov qword[rbp + {fncall.Dest.Offset}], rax");
                         foreach (var _ in fncall.Args)
                             lines.Add("pop rax");
                     }
@@ -370,6 +371,20 @@ public class IRCompiler
                     var s = instr.First as Variable;
                     lines.Add($"mov rbx, qword[rbp + {s.Offset}]");
                     lines.Add($"mov {reg}, {size}[rbx]");
+                    lines.Add($"mov {size}[rbp + {instr.Destination.Offset}], {reg}");
+                }
+                break;
+            case Operation.Neg: 
+                {
+                    var (size, reg) = instr.Destination.Type.Size switch
+                    {
+                        1 => ("byte", "al"),
+                        2 => ("word", "ax"),
+                        4 => ("dword", "eax"),
+                        8 => ("qword", "rax"),
+                    };
+                    CompileSource(instr.First, lines, size, reg); 
+                    lines.Add($"neg {reg}");
                     lines.Add($"mov {size}[rbp + {instr.Destination.Offset}], {reg}");
                 }
                 break;
