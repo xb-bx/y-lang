@@ -1,12 +1,10 @@
 fn main(): void 
 {
-    let nil: u8 = 0;
     let map: *u8 = null;
-    let nil32: i32 = 0;
     let snake: *i32 = null;
     let snakelen: i32 = 0;
-    let sizex = 15;
-    let sizey = 10;
+    let sizex = 28;
+    let sizey = 22;
     let dirx = 1;
     let diry = 0;
     let seed = 0;
@@ -15,10 +13,10 @@ fn main(): void
     let len = sizex * sizey;
     asm 
     {
-        sub rsp, 512
-        mov qword[rbp - 16], rsp; ptr to map
-        sub rsp, 1024
-        mov qword[rbp - 32], rsp; ptr to snake
+        sub rsp, 2048
+        mov qword[rbp - 8], rsp; ptr to map
+        sub rsp, 2048
+        mov qword[rbp - 16], rsp; ptr to snake
     }
     asm 
     {
@@ -37,7 +35,7 @@ fn main(): void
         drawmap(map, sizex, sizey);
         writechar(numtohex(i32tou8(fruitx)));
         writechar(numtohex(i32tou8(fruity)));
-        sleep(35);
+        sleep(55);
     }
 }
 fn placefruit(fruitx: *i32, fruity: *i32, seed: *i32, sizex: i32, sizey: i32) : void
@@ -215,11 +213,10 @@ fn fillmap(map: *u8, sizex: i32, sizey: i32, snake: *i32, snakelen: i32, fruitx:
 fn drawmap(map: *u8, sizex: i32, sizey: i32) : void 
 {
     let len = (sizex + 2) * sizey;
-    let i = 0;
-    while i < len 
+    asm 
     {
-        writechar(*(map + i));
-        i = i + 1;
+        invoke GetStdHandle, STD_OUTPUT_HANDLE
+        invoke WriteConsoleA, rax, qword[rbp + 16], dword[rbp - 24], 0 
     }
 }
 fn i32tou8(i: i32) : u8 
