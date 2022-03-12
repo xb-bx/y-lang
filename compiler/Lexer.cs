@@ -44,16 +44,14 @@ public static class Lexer
         '&',
         '|',
     };
-    private static readonly Dictionary<char, char> secondPartOperators = new()
+    private static readonly Dictionary<char, string> secondPartOperators = new()
     {
-        ['='] = '=',
-        ['>'] = '=',
-        ['<'] = '=',
-        ['!'] = '=',
-        ['>'] = '>',
-        ['<'] = '<',
-        ['|'] = '|',
-        ['&'] = '&',
+        ['='] = "=",
+        ['>'] = "=<",
+        ['<'] = "=>",
+        ['!'] = "=",
+        ['|'] = "|",
+        ['&'] = "&",
     };
     private static readonly Dictionary<char, TokenType> special = new()
     {
@@ -89,11 +87,12 @@ public static class Lexer
                     break;
                 case char c when operators.Contains(c):
                     {
+                        secondPartOperators.TryGetValue(c, out var cc);
                         string value = "";
                         Position startPos = curPos;
-                        if (secondPartOperators.TryGetValue(c, out char second) && pos + 1 < code.Length && code[pos + 1] == second)
+                        if (secondPartOperators.TryGetValue(c, out string s) && pos + 1 < code.Length && s.Contains(code[pos + 1]))
                         {
-                            value = ctx.Builder.Clear().Append(c).Append(second).ToString();
+                            value = ctx.Builder.Clear().Append(c).Append(code[pos + 1]).ToString();
                             pos++;
                             curPos.Column++;
                         }

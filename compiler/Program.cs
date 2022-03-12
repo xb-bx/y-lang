@@ -577,8 +577,9 @@ public static class Compiler
 
     private static Source CompileBinary(BinaryExpression bin, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions, TypeInfo? target)
     {
-        var leftType = InferExpressionType(bin.Left, ref fctx, ref ctx, target);
-        var rightType = InferExpressionType(bin.Right, ref fctx, ref ctx, target);
+        var exprtarget = ctx.Bool.Equals(target) ? null : target;
+        var leftType = InferExpressionType(bin.Left, ref fctx, ref ctx, exprtarget);
+        var rightType = InferExpressionType(bin.Right, ref fctx, ref ctx, leftType);
         if (!((leftType is PtrTypeInfo || rightType is PtrTypeInfo) && !(leftType is PtrTypeInfo && rightType is PtrTypeInfo)) && 
                 leftType != rightType)
         {

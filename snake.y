@@ -6,7 +6,7 @@ fn main(): void
     let snake: *i32 = null;
     let snakelen: i32 = 0;
     let sizex = 15;
-    let sizey = 15;
+    let sizey = 10;
     let dirx = 1;
     let diry = 0;
     let seed = 0;
@@ -23,7 +23,7 @@ fn main(): void
     asm 
     {
         invoke GetTickCount
-        mov dword[rbp - 96], eax
+        mov dword[rbp - 80], eax
     }
     initsnake(snake, &snakelen);
     enableVT();
@@ -35,23 +35,33 @@ fn main(): void
         movesnake(snake, &snakelen, dirx, diry, sizex, sizey, &seed, &fruitx, &fruity);
         fillmap(map, sizex, sizey, snake, snakelen, fruitx, fruity);
         drawmap(map, sizex, sizey);
+        writechar(numtohex(i32tou8(fruitx)));
+        writechar(numtohex(i32tou8(fruity)));
         sleep(35);
     }
 }
 fn placefruit(fruitx: *i32, fruity: *i32, seed: *i32, sizex: i32, sizey: i32) : void
 {
-    let x = modulo(nextrnd(seed), sizey);
-    let y = modulo(nextrnd(seed), sizex);
-    if x == 0  
+    let x = modulo(nextrnd(seed), sizex);
+    let y = modulo(nextrnd(seed), sizey);
+    if x <= 0 
         x = 1;
-    else if x == sizex - 1
+    else if x >= sizex - 1
         x = sizex - 2;
-    if y == 0
+    if y <= 0
         y = 1;
-    else if y == sizey - 1
+    else if y >= sizey - 1
         y = sizey - 2;
     *fruitx = x;
     *fruity = y;
+}
+fn numtohex(num: u8): u8 
+{
+    let res = 0;
+    if num > 10 
+        ret num + 0x41 - 10;
+    else 
+        ret num + 48;
 }
 fn movesnake(snake: *i32, snakelen: *i32, dirx: i32, diry:i32, sizex: i32, sizey: i32, seed: *i32, fruitx: *i32, fruity: *i32) : void
 {
