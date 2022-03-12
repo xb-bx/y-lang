@@ -21,6 +21,7 @@ public static class Lexer
         "box",
         "asm",
         "null",
+        "include",
     };
     private static readonly HashSet<char> brackets = new()
     {
@@ -199,9 +200,9 @@ public static class Lexer
                     'r' => '\r',
                     't' => '\t',
                     '0' => '\0',
-                    _ => code[pos],
+                    _ => '4',
                 };
-                if(c == code[pos])
+                if(c == '4')
                     ctx.Errors.Add(new Error($"Unknown escape sequence '\\{c}'", ctx.File, new Position(curPos.Line, curPos.Column + pos)));
                 sb.Append(c);
                 pos++;

@@ -51,16 +51,39 @@ public static class Parser
 
 
     }
-    public static List<Statement> Parse(List<Token> tokens, string filename, out List<Error> errors)
+    public static List<Statement> Parse(List<Token> tokens, out List<Error> errors)
     {
         var ctx = new Context() { Tokens = tokens };
         errors = ctx.Errors;
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
-            var m = ctx.Match(MatchGroup.MatchKeyword("fn"), out var t);
+            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("include"), out var t);
             if(m)
-                res.Add(ParseFunction(ref ctx, t.Pos));
+            {
+                if(t.Value == "fn")
+                {
+                    res.Add(ParseFunction(ref ctx, t.Pos));
+                }
+                else 
+                {
+                    var file = ctx.ForceMatch(MatchGroup.Match(TokenType.String), new Token { Type = TokenType.String, Value = "<undefined>" });
+                    if(file.Value != "<undefined>")
+                    {
+                        if(File.Exists(file.Value))
+                        {
+                            var toks = Lexer.Tokenize(File.ReadAllText(file.Value), Path.GetFileName(file.Value), out var errs);
+                            ctx.Errors.AddRange(errs);
+                            ctx.ForceMatch(MatchGroup.Semicolon);
+                            ctx.Tokens.InsertRange(ctx.Pos, toks);
+                        }
+                        else 
+                        {
+                            ctx.Errors.Add(new Error($"Cannot find file {file.Value}", file.File, file.Pos));
+                        }
+                    }
+                }
+            }
             else 
                 ctx.Pos++;
         }
@@ -163,13 +186,9 @@ public static class Parser
     private static Statement DerefStatement(ref Context ctx)
     {
         ctx.Pos--;
-        Console.WriteLine(ctx.Pos);
         var expr = Parser.Deref(ref ctx);
-        Console.WriteLine(ctx.Pos);
         ctx.ForceMatch(MatchGroup.EQ);
-        Console.WriteLine(ctx.Pos);
         var value = Expression(ref ctx);
-        Console.WriteLine($"value = {value}");
         ctx.ForceMatch(MatchGroup.Semicolon);
         return new AssignStatement(expr, value);
     }
