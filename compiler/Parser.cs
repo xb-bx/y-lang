@@ -362,6 +362,7 @@ public static class Parser
                 .Or(TokenType.BinInteger)
                 .Or(TokenType.Id)
                 .OrKeyword("new")
+                .OrKeyword("null")
                 .Or(MatchGroup.LP)
                 .OrKeyword("false")
                 .OrKeyword("true"), Token.UndefinedId);
@@ -377,6 +378,7 @@ public static class Parser
             { Type: TokenType.Keyword, Value: "new", Pos: var pos } => NewObjExpression(ref ctx, pos),
             { Type: TokenType.Keyword, Value: "false", Pos: var pos, File: var file } => new BoolExpression(false, pos, file),
             { Type: TokenType.Keyword, Value: "true", Pos: var pos, File: var file } => new BoolExpression(true, pos, file),
+            { Type: TokenType.Keyword, Value: "null", Pos: var pos, File: var file } => new NullExpression(pos, file),
             _ => throw new()
         };
         while (ctx.Match(MatchGroup.Match(TokenType.Bracket, "(").Or(TokenType.Bracket, "[").Or(TokenType.Dot), out var token))

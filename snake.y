@@ -1,9 +1,9 @@
 fn main(): void 
 {
     let nil: u8 = 0;
-    let map: *u8 = &nil;
+    let map: *u8 = null;
     let nil32: i32 = 0;
-    let snake: *i32 = &nil32;
+    let snake: *i32 = null;
     let snakelen: i32 = 0;
     let sizex = 15;
     let sizey = 15;
@@ -16,9 +16,9 @@ fn main(): void
     asm 
     {
         sub rsp, 512
-        mov qword[rbp - 24], rsp; ptr to map
+        mov qword[rbp - 16], rsp; ptr to map
         sub rsp, 1024
-        mov qword[rbp - 48], rsp; ptr to snake
+        mov qword[rbp - 32], rsp; ptr to snake
     }
     asm 
     {

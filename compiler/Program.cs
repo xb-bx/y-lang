@@ -109,7 +109,7 @@ public static class Compiler
             {
                 if (Types.TryGetValue(ptr.UnderlayingType.Name, out var type))
                 {
-                    return new PtrTypeInfo(type, ptr.PtrDepth);
+                    return new PtrTypeInfo(type);
                 }
                 else
                 {
@@ -312,8 +312,11 @@ public static class Compiler
             case CallStatement call:
                 CompileExpression(call.Call, ref fctx, ref ctx, instructions, null);
                 var fnca = instructions.Last() as FnCallInstruction;
-                fctx.Variables.Remove(fnca.Dest);
-                fnca!.Dest = null;
+                if(fnca is not null && fnca.Dest is not null)
+                {   
+                    fctx.Variables.Remove(fnca.Dest);
+                    fnca.Dest = null;
+                }
                 break;
             case RetStatement ret:
                 {
@@ -464,8 +467,10 @@ public static class Compiler
             IndexExpression index => CompileIndex(index, ref fctx, ref ctx, instructions),
             FunctionCallExpression fncall => CompileFnCall(fncall, ref fctx, ref ctx, instructions),
             DereferenceExpression deref => CompileDeref(deref, ref fctx, ref ctx, instructions),
+            NullExpression => new Constant<long>(0, ctx.I64),
         };
     }
+
 
     private static Source CompileDeref(DereferenceExpression deref, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
@@ -526,7 +531,7 @@ public static class Compiler
         if (r.Expr is VariableExpression varr)
         {
             var type = InferExpressionType(varr, ref fctx, ref ctx, null);
-            PtrTypeInfo destType = new PtrTypeInfo(type, 0);
+            PtrTypeInfo destType = new PtrTypeInfo(type);
             var v = CompileExpression(varr, ref fctx, ref ctx, instrs, type);
             var res = new Variable($"__temp_{fctx.TempCount++}", destType);
             fctx.Variables.Add(res);
@@ -674,6 +679,8 @@ public static class Compiler
                 return ctx.Bool;
             case NegateExpression neg:
                 return InferExpressionType(neg.Expr, ref fctx, ref ctx, target);
+            case NullExpression nullexpr:
+                return InferNull(ref ctx, target);
             case DereferenceExpression deref:
                 {
                     var underlaying = InferExpressionType(deref.Expr, ref fctx, ref ctx, target);
@@ -700,8 +707,8 @@ public static class Compiler
             case RefExpression r:
                 return InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
                 {
-                    PtrTypeInfo ptr => new PtrTypeInfo(ptr, 0),
-                    TypeInfo t => new PtrTypeInfo(t, 1),
+                    PtrTypeInfo ptr => new PtrTypeInfo(ptr),
+                    TypeInfo t => new PtrTypeInfo(t),
                 };
             case BinaryExpression bin:
                 if (bin.Op is "==" or "!=" or "<=" or "<" or ">" or ">=" or "&&" or "||")
@@ -742,6 +749,14 @@ public static class Compiler
             default: throw new Exception($"OOOOOO NOOOO {expr.GetType()}");
         }
     }
+
+    private static TypeInfo InferNull(ref Context ctx, TypeInfo? target)
+    {
+        if (target is PtrTypeInfo ptr)
+            return ptr;
+        return new PtrTypeInfo(ctx.Void);
+    }
+
     private static bool CheckAllCodePathReturns(Statement stat)
     {
         return stat switch
@@ -845,19 +860,18 @@ public class TypeInfo
 public class PtrTypeInfo : TypeInfo
 {
     public TypeInfo Underlaying { get; private set; }
-    //    public int Depth { get; private set; }
-    public PtrTypeInfo(TypeInfo underlaying, int depth)
-        => (Underlaying, Size, /*Depth, */ Name) = (underlaying, 8, /*depth,*/ $"{new string('*', depth)}{underlaying.Name}");
+    public PtrTypeInfo(TypeInfo underlaying)
+        => (Underlaying, Size, Name) = (underlaying, 8, $"*{underlaying.Name}");
 
     public override bool Equals(object? obj)
     {
         return obj is PtrTypeInfo info &&
-               EqualityComparer<TypeInfo>.Default.Equals(Underlaying, info.Underlaying); //&& Depth == info.Depth;
+               EqualityComparer<TypeInfo>.Default.Equals(Underlaying, info.Underlaying);
     }
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(base.GetHashCode(), Name, Size, Underlaying /*, Depth*/);
+        return HashCode.Combine(base.GetHashCode(), Name, Size, Underlaying);
     }
     public override string ToString()
         => $"*{Underlaying}";

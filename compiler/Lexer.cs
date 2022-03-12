@@ -20,6 +20,7 @@ public static class Lexer
         "new",
         "box",
         "asm",
+        "null",
     };
     private static readonly HashSet<char> brackets = new()
     {
