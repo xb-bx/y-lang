@@ -44,11 +44,11 @@ fn placefruit(fruitx: *i32, fruity: *i32, seed: *i32, sizex: i32, sizey: i32) : 
     let y = modulo(nextrnd(seed), sizex);
     if x == 0  
         x = 1;
-    if x == sizex - 1
+    else if x == sizex - 1
         x = sizex - 2;
     if y == 0
         y = 1;
-    if y == sizey - 1
+    else if y == sizey - 1
         y = sizey - 2;
     *fruitx = x;
     *fruity = y;
@@ -64,16 +64,14 @@ fn movesnake(snake: *i32, snakelen: *i32, dirx: i32, diry:i32, sizex: i32, sizey
     if hx == 0 hx = sizex - 2;
     if hy == sizey- 1 hy = 1;
     if hy == 0 hy = sizey - 2;
-    if hx == *fruitx
+    
+    if hx == *fruitx && hy == *fruity
     {
-        if hy == *fruity
-        {
-            let ind = *snakelen * 2;
-            *(snake + ind) = *snake;
-            *(snake + (ind + 1)) = *(snake + 1);
-            *snakelen = *snakelen + 1;
-            placefruit(fruitx, fruity, seed, sizex, sizey);
-        }
+        let ind = *snakelen * 2;
+        *(snake + ind) = *snake;
+        *(snake + (ind + 1)) = *(snake + 1);
+        *snakelen = *snakelen + 1;
+        placefruit(fruitx, fruity, seed, sizex, sizey);
     }
     
     while i > 0
@@ -89,8 +87,7 @@ fn movesnake(snake: *i32, snakelen: *i32, dirx: i32, diry:i32, sizex: i32, sizey
     {
         let sx = *(snake + i * 2);
         let sy = *(snake + i * 2 + 1);
-        if sx == hx
-        if sy == hy
+        if sx == hx && sy == hy
         {
             asm 
             {
@@ -148,37 +145,25 @@ fn input(dirx: *i32, diry: *i32): void
     let right = 0x27;
     let up = 0x26;
     let down = 0x28;
-    if get_key_state(left) != 0 
+    if get_key_state(left) != 0 && *dirx != 1
     {
-        if *dirx != 1 
-        {
-            *dirx = -1;
-            *diry = 0;
-        }
+        *dirx = -1;
+        *diry = 0;
     }
-    else if get_key_state(right) != 0 
+    else if get_key_state(right) != 0  && *dirx != -1
     {
-        if *dirx != -1
-        {
-            *dirx = 1;
-            *diry = 0;
-        }
+        *dirx = 1;
+        *diry = 0;
     }
-    else if get_key_state(up) != 0 
+    else if get_key_state(up) != 0 && *diry != 1 
     {
-        if *diry != 1 
-        {
-            *dirx = 0;
-            *diry = -1;
-        }
+        *dirx = 0;
+        *diry = -1;
     }
-    else if get_key_state(down) != 0
+    else if get_key_state(down) != 0 && *diry != -1
     {
-        if *diry != -1 
-        {
-            *dirx = 0;
-            *diry = 1;
-        }
+        *dirx = 0;
+        *diry = 1;
     }
 
 }
@@ -190,13 +175,8 @@ fn fillmap(map: *u8, sizex: i32, sizey: i32, snake: *i32, snakelen: i32, fruitx:
         let x = 0;
         while x < sizex 
         {
-            let flag = false;
-            if x == 0 flag = true;
-            if x == sizex - 1 flag = true;
-            if y == 0 flag = true;
-            if y == sizey - 1 flag = true;
             
-            if flag 
+            if x == 0 || x == sizex - 1 || y == 0 || y == sizey - 1 
             {
                 *(map + ((y * (sizex + 2)) + x)) = 35;
             }

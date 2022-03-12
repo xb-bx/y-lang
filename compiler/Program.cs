@@ -355,12 +355,21 @@ public static class Compiler
                 {
                     var elsestart = fctx.NewLabel();
                     var end = fctx.NewLabel();
+                    var ifstart = fctx.NewLabel();
                     var condType = InferExpressionType(ifElse.Condition, ref fctx, ref ctx, ctx.Bool);
                     if (condType != ctx.Bool)
                         ctx.Errors.Add(new Error($"Condition must be boolean", ifElse.File, ifElse.Condition.Pos));
-                    var cond = CompileExpression(ifElse.Condition, ref fctx, ref ctx, instructions, ctx.Bool);
-                    var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse);
-                    instructions.Add(jmp);
+                    if(ifElse.Condition is BinaryExpression bin && bin.Op is "&&" or "||")
+                    {
+                        CompileLazyBoolean(bin, ifstart, elsestart, ref fctx, ref ctx, instructions); 
+                    }
+                    else 
+                    {
+                        var cond = CompileExpression(ifElse.Condition, ref fctx, ref ctx, instructions, ctx.Bool);
+                        var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse);
+                        instructions.Add(jmp);
+                    }
+                    instructions.Add(ifstart);
                     CompileStatement(ref fctx, ref ctx, ifElse.Body, instructions);
                     var jmptoend = new Jmp(end, null, JumpType.Jmp);
                     instructions.Add(jmptoend);
@@ -389,6 +398,59 @@ public static class Compiler
                 break;
         }
     }
+
+    private static void CompileLazyBoolean(BinaryExpression bin, Label ifstart, Label elsestart, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+        if(bin.Op is "&&")
+        {
+            if(bin.Left is BinaryExpression bleft && bleft.Op is "&&" or "||")
+            {
+                var snd = fctx.NewLabel();
+                CompileLazyBoolean(bleft, snd, elsestart, ref fctx, ref ctx, instructions);
+                instructions.Add(snd);
+            }
+            else 
+            {
+                var first = CompileExpression(bin.Left, ref fctx, ref ctx, instructions, ctx.Bool);
+                instructions.Add(new Jmp(elsestart, first, JumpType.JmpFalse));
+            }
+            if(bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
+            {
+                var snd = fctx.NewLabel();
+                CompileLazyBoolean(bright, snd, elsestart, ref fctx, ref ctx, instructions);
+                instructions.Add(snd);
+            }
+            else 
+            {
+                var second = CompileExpression(bin.Right, ref fctx, ref ctx, instructions, ctx.Bool);
+                instructions.Add(new Jmp(elsestart, second, JumpType.JmpFalse));
+            }
+            instructions.Add(new Jmp(ifstart, null, JumpType.Jmp));
+        }
+        else 
+        {
+            if(bin.Left is BinaryExpression bleft && bleft.Op is "&&" or "||")
+            {
+                CompileLazyBoolean(bleft, ifstart, elsestart, ref fctx, ref ctx, instructions);
+            }
+            else 
+            {
+                var first = CompileExpression(bin.Left, ref fctx, ref ctx, instructions, ctx.Bool);
+                instructions.Add(new Jmp(ifstart, first, JumpType.JmpTrue));
+            }
+            if(bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
+            {
+                CompileLazyBoolean(bright, ifstart, elsestart, ref fctx, ref ctx, instructions);
+            }
+            else 
+            {
+                var second = CompileExpression(bin.Right, ref fctx, ref ctx, instructions, ctx.Bool);
+                instructions.Add(new Jmp(ifstart, second, JumpType.JmpTrue));
+            }
+            instructions.Add(new Jmp(elsestart, null, JumpType.Jmp));
+        }
+    }
+
     private static Source CompileExpression(Expression expr, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions, TypeInfo? targetType)
     {
         return expr switch
