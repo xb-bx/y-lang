@@ -47,6 +47,7 @@ public enum Operation
     GTEQ,
     LTEQ,
     EQEQ,
+    NEQ,
     Not,
     Neg,
     Shr,
@@ -294,6 +295,7 @@ public class IRCompiler
             case Operation.GT:
             case Operation.GTEQ:
             case Operation.EQEQ:
+            case Operation.NEQ:
                 {
                     var (size, reg1, reg2) = instr.First.Type.Size switch
                     {
@@ -311,6 +313,7 @@ public class IRCompiler
                         Operation.LTEQ => "le",
                         Operation.GTEQ => "ge",
                         Operation.EQEQ => "e",
+                        Operation.NEQ => "ne",
                         _ => "fuck",
                     };
                     lines.Add($"cmp {reg1}, {reg2}");

@@ -56,11 +56,14 @@ fn placefruit(fruitx: *i32, fruity: *i32, seed: *i32, sizex: i32, sizey: i32) : 
 fn movesnake(snake: *i32, snakelen: *i32, dirx: i32, diry:i32, sizex: i32, sizey: i32, seed: *i32, fruitx: *i32, fruity: *i32) : void
 {
     let i = *snakelen - 1;
-    let minusone = 1 - 2;
     
     let hx = *snake + dirx;
     let hy = *(snake + 1) + diry;
     
+    if hx == sizex - 1 hx = 1;
+    if hx == 0 hx = sizex - 2;
+    if hy == sizey- 1 hy = 1;
+    if hy == 0 hy = sizey - 2;
     if hx == *fruitx
     {
         if hy == *fruity
@@ -81,10 +84,6 @@ fn movesnake(snake: *i32, snakelen: *i32, dirx: i32, diry:i32, sizex: i32, sizey
         i = i - 1;
     }
 
-    if hx == sizex - 1 hx = 1;
-    if hx == 0 hx = sizex - 1;
-    if hy == sizey- 1 hy = 1;
-    if hy == 0 hy = sizey - 1;
     i = 1;
     while i < *snakelen 
     {
@@ -143,45 +142,39 @@ fn initsnake(snake: *i32, snakelen: *i32): void
     *(snake + 2) = 5;
     *(snake + 3) = 1;
 }
-fn bnot(val: bool): bool 
-{
-    if val ret false;
-    ret true;
-}
 fn input(dirx: *i32, diry: *i32): void 
 {
     let left = 0x25;
     let right = 0x27;
     let up = 0x26;
     let down = 0x28;
-    if bnot(get_key_state(left) == 0) 
+    if get_key_state(left) != 0 
     {
-        if bnot(*dirx == 1) 
+        if *dirx != 1 
         {
-            *dirx = 1 - 2;
+            *dirx = -1;
             *diry = 0;
         }
     }
-    else if bnot(get_key_state(right) == 0) 
+    else if get_key_state(right) != 0 
     {
-        let f = (*dirx == mins);
-        if bnot(*dirx == -1)
+        if *dirx != -1
         {
             *dirx = 1;
             *diry = 0;
         }
     }
-    else if bnot(get_key_state(up) == 0) 
+    else if get_key_state(up) != 0 
     {
-        if bnot(*diry == 1) 
+        if *diry != 1 
         {
             *dirx = 0;
-            *diry = 1 - 2;
+            *diry = -1;
         }
     }
-    else if bnot(get_key_state(down) == 0)
+    else if get_key_state(down) != 0
     {
-        if bnot(*diry == -1) 
+        if *diry != -1 
         {
             *dirx = 0;
             *diry = 1;

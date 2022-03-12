@@ -535,6 +535,7 @@ public static class Compiler
             "<" => Operation.LT,
             "<=" => Operation.LTEQ,
             "==" => Operation.EQEQ,
+            "!=" => Operation.NEQ,
             "&&" => Operation.AND,
             "||" => Operation.OR,
             _ => throw new(bin.Op)
