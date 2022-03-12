@@ -21,7 +21,7 @@ fn main(): void
     asm 
     {
         invoke GetTickCount
-        mov dword[rbp - 80], eax
+        mov dword[rbp - 64], eax
     }
     initsnake(snake, &snakelen);
     enableVT();
