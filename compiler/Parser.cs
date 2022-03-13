@@ -58,12 +58,16 @@ public static class Parser
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
-            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("include"), out var t);
+            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("include"), out var t);
             if(m)
             {
                 if(t.Value == "fn")
                 {
                     res.Add(ParseFunction(ref ctx, t.Pos));
+                }
+                else if(t.Value == "let")
+                {
+                    res.Add(Let(ref ctx, t.Pos));
                 }
                 else 
                 {
@@ -75,7 +79,7 @@ public static class Parser
                             var toks = Lexer.Tokenize(File.ReadAllText(file.Value), Path.GetFileName(file.Value), out var errs);
                             ctx.Errors.AddRange(errs);
                             ctx.ForceMatch(MatchGroup.Semicolon);
-                            ctx.Tokens.InsertRange(ctx.Pos, toks);
+                            ctx.Tokens.InsertRange(ctx.Pos, toks.Take(toks.Count - 1));
                         }
                         else 
                         {

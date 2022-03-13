@@ -67,10 +67,13 @@ public class Variable : Source
     public override TypeInfo Type { get; }
     public int Offset { get; set; }
     public bool IsArg { get; private set; }
+    public bool IsGlobal { get; set; }
     public Variable(string name, TypeInfo type, bool isArg = false)
         => (Name, Type, IsArg) = (name, type, isArg);
     public override string ToString()
         => $"({(IsArg ? "arg " : " ")}{Name}: {Type})";
+    public string ToAddress()
+        => IsGlobal ? Name : $"rbp + {Offset}";
 }
 public class FnCallInstruction : InstructionBase
 {
@@ -109,28 +112,31 @@ public class Jmp : InstructionBase
 }
 public class IRCompiler
 {
-    public static List<string> Compile(List<InstructionBase> instructions, List<Variable> vars, FnInfo fn)
+    public static List<string> Compile(List<InstructionBase> instructions, List<Variable> vars, FnInfo? fn)
     {
-        foreach (var (arg, i) in vars.Where(x => x.IsArg).Select((x, i) => (x, i)))
-        {
-            arg.Offset = (arg.Type.Size < 8 ? 8 : arg.Type.Size) * i + 16;
-        }
-        foreach (var (v, i) in vars.Where(x => !x.IsArg).Select((x, i) => (x, i)))
-        {
-            v.Offset = -((v.Type.Size < 8 ? 8 : v.Type.Size) * i) - 8;
-        }
-        foreach (var v in vars)
-            Console.WriteLine($"{v} {v.Offset}");
-        var localsSize = 0;
-        foreach (var v in vars.Where(x => !x.IsArg))
-        {
-            localsSize += v.Type.Size < 8 ? 8 : v.Type.Size;
-        }
         var lines = new List<string>();
-        lines.Add($"{fn.NameInAsm}:");
-        lines.Add("push rbp");
-        lines.Add("mov rbp, rsp");
-        lines.Add($"sub rsp, {localsSize}");
+        if (fn is not null)
+        {
+            foreach (var (arg, i) in vars.Where(x => x.IsArg).Select((x, i) => (x, i)))
+            {
+                arg.Offset = (arg.Type.Size < 8 ? 8 : arg.Type.Size) * i + 16;
+            }
+            foreach (var (v, i) in vars.Where(x => !x.IsArg).Select((x, i) => (x, i)))
+            {
+                v.Offset = -((v.Type.Size < 8 ? 8 : v.Type.Size) * i) - 8;
+            }
+            foreach (var v in vars)
+                Console.WriteLine($"{v} {v.Offset}");
+            var localsSize = 0;
+            foreach (var v in vars.Where(x => !x.IsArg))
+            {
+                localsSize += v.Type.Size < 8 ? 8 : v.Type.Size;
+            }
+            lines.Add($"{fn.NameInAsm}:");
+            lines.Add("push rbp");
+            lines.Add("mov rbp, rsp");
+            lines.Add($"sub rsp, {localsSize}");
+        }
         foreach (var instr in instructions)
         {
             switch (instr)
@@ -168,15 +174,15 @@ public class IRCompiler
                         foreach (var arg in fncall.Args.Select(x => x).Reverse())
                             if (arg is Variable v)
                             {
-                                lines.Add($"push qword[rbp + {v.Offset}]");
+                                lines.Add($"push qword[{v.ToAddress()}]");
                             }
                             else
                             {
                                 lines.Add($"push {arg}");
                             }
                         lines.Add($"call {fncall.Fn.NameInAsm}");
-                        if(fncall.Dest is not null)
-                            lines.Add($"mov qword[rbp + {fncall.Dest.Offset}], rax");
+                        if (fncall.Dest is not null)
+                            lines.Add($"mov qword[{fncall.Dest.ToAddress()}], rax");
                         foreach (var _ in fncall.Args)
                             lines.Add("pop rax");
                     }
@@ -184,7 +190,7 @@ public class IRCompiler
                 case Instruction inst: CompileInstr(inst, lines, vars, fn); break;
             }
         }
-        if (fn.RetType.Name == "void")
+        if (fn?.RetType.Name == "void")
         {
             lines.Add("mov rsp, rbp");
             lines.Add("pop rbp");
@@ -204,10 +210,10 @@ public class IRCompiler
                         1 => ("byte", "al"),
                         2 => ("word", "ax"),
                         4 => ("dword", "eax"),
-                        8 => ("qword", "rax"),
+                        _ => ("qword", "rax"),
                     };
                     CompileSource(instr.First!, lines, size, reg);
-                    lines.Add($"mov {size}[rbp + {instr.Destination.Offset}], {reg}"); ;
+                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}"); ;
 
                 }
                 break;
@@ -244,7 +250,7 @@ public class IRCompiler
                     var opp = op is Operation.Add ? "add" : "sub";
                     lines.Add($"shl {reg}, {(int)Math.Log2(ptrType.Underlaying.Size)}");
                     lines.Add($"{opp} rax, rbx");
-                    lines.Add($"mov qword[rbp + {instr.Destination.Offset}], rax");
+                    lines.Add($"mov qword[{instr.Destination.ToAddress()}], rax");
                 }
                 break;
             case Operation.Div:
@@ -260,6 +266,7 @@ public class IRCompiler
                     CompileSource(instr.Second, lines, size, reg2);
                     lines.Add("mov rdx, 0");
                     lines.Add($"idiv {reg2}");
+                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg1}");
                 }
                 break;
             case Operation.Add:
@@ -287,7 +294,7 @@ public class IRCompiler
                         _ => "fuck",
                     };
                     lines.Add($"{op} {reg1}, {reg2}");
-                    lines.Add($"mov {size}[rbp + {instr.Destination.Offset}], {reg1}");
+                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg1}");
                 }
                 break;
             case Operation.LT:
@@ -302,7 +309,7 @@ public class IRCompiler
                         1 => ("byte", "al", "bl"),
                         2 => ("word", "ax", "bx"),
                         4 => ("dword", "eax", "ebx"),
-                        8 => ("qword", "rax", "rbx"),
+                        _ => ("qword", "rax", "rbx"),
                     };
                     CompileSource(instr.First, lines, size, reg1);
                     CompileSource(instr.Second, lines, size, reg2);
@@ -318,7 +325,7 @@ public class IRCompiler
                     };
                     lines.Add($"cmp {reg1}, {reg2}");
                     lines.Add($"set{op} bl");
-                    lines.Add($"mov byte[rbp + {instr.Destination.Offset}], bl");
+                    lines.Add($"mov byte[{instr.Destination.ToAddress()}], bl");
                 }
                 break;
             case Operation.Ret:
@@ -330,7 +337,7 @@ public class IRCompiler
                             1 => ("byte", "al"),
                             2 => ("word", "ax"),
                             4 => ("dword", "eax"),
-                            8 => ("qword", "rax"),
+                            _ => ("qword", "rax"),
                         };
                         CompileSource(s, lines, size, reg);
                     }
@@ -343,22 +350,22 @@ public class IRCompiler
                 {
                     if (instr.First is Variable v)
                     {
-                        lines.Add($"lea rax, [rbp + {v.Offset}]");
-                        lines.Add($"mov qword[rbp + {instr.Destination.Offset}], rax");
+                        lines.Add($"lea rax, [{v.ToAddress()}]");
+                        lines.Add($"mov qword[{instr.Destination.ToAddress()}], rax");
                     }
                 }
                 break;
             case Operation.SetRef:
                 {
-                    var (size, reg) = (instr.Destination.Type as PtrTypeInfo)!.Underlaying.Size switch
+                    var (size, reg) = (instr.Destination.Type as PtrTypeInfo)?.Underlaying.Size switch
                     {
                         1 => ("byte", "al"),
                         2 => ("word", "ax"),
                         4 => ("dword", "eax"),
-                        8 => ("qword", "rax"),
+                        _ => ("qword", "rax"),
                     };
                     CompileSource(instr.First, lines, size, reg);
-                    lines.Add($"mov rbx, qword[rbp + {instr.Destination.Offset}]");
+                    lines.Add($"mov rbx, qword[{instr.Destination.ToAddress()}]");
                     lines.Add($"mov {size}[rbx], {reg}");
                 }
                 break;
@@ -369,26 +376,26 @@ public class IRCompiler
                         1 => ("byte", "al"),
                         2 => ("word", "ax"),
                         4 => ("dword", "eax"),
-                        8 => ("qword", "rax"),
+                        _ => ("qword", "rax"),
                     };
                     var s = instr.First as Variable;
-                    lines.Add($"mov rbx, qword[rbp + {s.Offset}]");
+                    lines.Add($"mov rbx, qword[{s.ToAddress()}]");
                     lines.Add($"mov {reg}, {size}[rbx]");
-                    lines.Add($"mov {size}[rbp + {instr.Destination.Offset}], {reg}");
+                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}");
                 }
                 break;
-            case Operation.Neg: 
+            case Operation.Neg:
                 {
                     var (size, reg) = instr.Destination.Type.Size switch
                     {
                         1 => ("byte", "al"),
                         2 => ("word", "ax"),
                         4 => ("dword", "eax"),
-                        8 => ("qword", "rax"),
+                        _ => ("qword", "rax"),
                     };
-                    CompileSource(instr.First, lines, size, reg); 
+                    CompileSource(instr.First, lines, size, reg);
                     lines.Add($"neg {reg}");
-                    lines.Add($"mov {size}[rbp + {instr.Destination.Offset}], {reg}");
+                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}");
                 }
                 break;
         }
@@ -397,7 +404,7 @@ public class IRCompiler
     {
         if (src is Variable v)
         {
-            lines.Add($"mov {reg}, {size}[rbp + {v.Offset}]");
+            lines.Add($"mov {reg}, {size}[{v.ToAddress()}]");
         }
         else
         {

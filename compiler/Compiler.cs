@@ -11,6 +11,7 @@ public static class Compiler
         public Dictionary<string, TypeInfo> Types = null!;
         public List<FnInfo> Fns = null!;
         public List<Error> Errors = new();
+        public List<Variable> Globals = new();
         public TypeInfo? GetTypeInfo(TypeExpression typeexpr)
         {
             if (typeexpr is PtrType ptr)
@@ -46,6 +47,25 @@ public static class Compiler
         var ctx = new Context();
         AddDefaultTypes(ref ctx);
         var fns = statements.OfType<FnDefinitionStatement>().ToList();
+        var globals = statements.OfType<LetStatement>().ToList();
+        var globalctx = new FunctionContext();
+        var instrs = new List<InstructionBase>();
+        foreach(var global in globals)
+        {
+            Console.WriteLine(global.Name);
+            if(IsConstant(global.Value))
+            {
+                CompileStatement(ref globalctx, ref ctx, global, instrs);
+            }
+            else 
+            {
+                ctx.Errors.Add(new Error("Global variables cannot be initialized only with constant values", global.Value.File, global.Value.Pos));
+            }
+        }
+        globalctx.Variables.ForEach(x => x.IsGlobal = true);
+        ctx.Globals = globalctx.Variables;
+
+
         if (fns.Count == 0)
             return new();
         AddFunctions(ref ctx, fns);
@@ -63,6 +83,7 @@ public static class Compiler
             f.Info.Compiled.ForEach(Console.WriteLine);
             res.AddRange(IRCompiler.Compile(f.Info.Compiled, f.Variables, fn));
         }
+        var globalsinit = IRCompiler.Compile(instrs, new(), null!);
         var result = new StringBuilder();
         result
             .AppendLine("format PE64 CONSOLE")
@@ -72,9 +93,17 @@ public static class Compiler
             .AppendLine("False = 0")
             .AppendLine("section '.code' code readable executable")
             .AppendLine("__start:")
+            .AppendLine(string.Join('\n', globalsinit))
             .AppendLine("call main")
             .AppendLine("invoke ExitProcess, 0")
-            .AppendLine(string.Join('\n', res))
+            .AppendLine(string.Join('\n', res));
+        if(ctx.Globals.Count > 0)
+        {
+            result.AppendLine("section '.data' data readable writable");
+            foreach(var global in ctx.Globals)
+                result.AppendLine($"{global.Name} dq 0");
+        }
+        result
             .AppendLine("section '.idata' import data readable writeable")
             .AppendLine("library kernel32,'kernel32.dll', user32, 'user32.dll'")
             .AppendLine("include 'api\\kernel32.inc'")
@@ -82,6 +111,12 @@ public static class Compiler
         File.WriteAllText(output, result.ToString());
         return ctx.Errors;
     }
+
+    private static bool IsConstant(Expression value)
+    {
+        return value is IntegerExpression or NullExpression or BoolExpression;
+    }
+
     private ref struct FunctionContext
     {
         public List<Variable> Variables = new();
@@ -157,7 +192,8 @@ public static class Compiler
                 {
                     if (ass.Expr is VariableExpression varr)
                     {
-                        if (fctx.Variables.FirstOrDefault(x => x.Name == varr.Name) is Variable v)
+                        Variable? v = fctx.Variables.FirstOrDefault(x => x.Name == varr.Name) ?? ctx.Globals.FirstOrDefault(x =>x.Name == varr.Name);
+                        if(v is not null)
                         {
                             var type = InferExpressionType(ass.Value, ref fctx, ref ctx, v.Type);
                             if (!type.Equals(v.Type))
@@ -401,7 +437,7 @@ public static class Compiler
         var prev = ctx.Errors.Count;
         if(fn is null)
         {
-            var posibles = ctx.Fns.Where(x => x.Name == fncall.Name).ToList();
+            var posibles = ctx.Fns.Where(x => x.Name == fncall.Name && x.Params.Count == fncall.Args.Count).ToList();
             if(posibles.Count != 0)
             {
                 foreach(var posible in posibles)
@@ -506,6 +542,10 @@ public static class Compiler
         if (fctx.Variables.FirstOrDefault(x => x.Name == varr.Name) is Variable v)
         {
             return v;
+        }
+        else if(ctx.Globals.FirstOrDefault(x => x.Name == varr.Name) is Variable gvar)
+        {
+            return gvar;
         }
         else
         {
@@ -638,6 +678,10 @@ public static class Compiler
                 if (fctx.Variables.FirstOrDefault(x => x.Name == v.Name) is Variable varr)
                 {
                     return varr.Type;
+                }
+                else if(ctx.Globals.FirstOrDefault(x => x.Name == v.Name) is Variable gvar)
+                {
+                    return gvar.Type;
                 }
                 else
                 {
