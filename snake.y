@@ -57,13 +57,12 @@ fn placefruit() : void
     fruitx = x;
     fruity = y;
 }
-fn numtohex(num: u8): u8 
+fn numtohex(num: u8): char 
 {
-    let res = 0;
     if num > 10 
-        ret num + 0x41 - 10;
+        ret u8tochar(num + 0x41 - 10);
     else 
-        ret num + 48;
+        ret u8tochar(num + 48);
 }
 fn movesnake() : void
 {

@@ -40,6 +40,7 @@ public static class Compiler
         public TypeInfo Void = null!;
         public TypeInfo I64 = null!, I32 = null!, I16 = null!, I8 = null!;
         public TypeInfo U64 = null!, U32 = null!, U16 = null!, U8 = null!;
+        public TypeInfo Char = null!;
         public TypeInfo Bool = null!;
     }
     public static List<Error> Compile(List<Statement> statements, string output)
@@ -80,8 +81,11 @@ public static class Compiler
             var f = CompileFn(ref ctx, fn);
             Console.WriteLine("VARS");
             f.Variables.ForEach(Console.WriteLine);
-            f.Info.Compiled.ForEach(Console.WriteLine);
-            res.AddRange(IRCompiler.Compile(f.Info.Compiled, f.Variables, fn));
+            if(f.Info is not null)
+            {
+                f.Info.Compiled?.ForEach(Console.WriteLine);
+                res.AddRange(IRCompiler.Compile(f.Info.Compiled, f.Variables, fn));
+            }
         }
         var globalsinit = IRCompiler.Compile(instrs, new(), null!);
         var result = new StringBuilder();
@@ -403,7 +407,7 @@ public static class Compiler
         return expr switch
         {
             BinaryExpression bin => CompileBinary(bin, ref fctx, ref ctx, instructions, targetType),
-            IntegerExpression i => new Constant<long>(i.Value, ctx.I64),
+            IntegerExpression i => new Constant<long>(i.Value, InferExpressionType(i, ref fctx, ref ctx, targetType)),
             VariableExpression varr => CompileVar(varr, ref fctx, ref ctx, targetType),
             BoolExpression b => new Constant<bool>(b.Value, ctx.Bool),
             NegateExpression neg => CompileNeg(neg, ref fctx, ref ctx, instructions, targetType),
@@ -412,6 +416,7 @@ public static class Compiler
             FunctionCallExpression fncall => CompileFnCall(fncall, ref fctx, ref ctx, instructions),
             DereferenceExpression deref => CompileDeref(deref, ref fctx, ref ctx, instructions),
             NullExpression => new Constant<long>(0, ctx.I64),
+            CharExpression c=> targetType?.Equals(ctx.U8) == true ? new Constant<byte>((byte)c.Value, ctx.U8) : new Constant<byte>((byte)c.Value, ctx.Char),
         };
     }
 
@@ -647,6 +652,14 @@ public static class Compiler
             }
             else return ctx.U8;
         }
+        else if (target.Equals(ctx.Char))
+        {
+            if (i.Value > byte.MaxValue)
+            {
+                ctx.Errors.Add(new Error("Value out of range", i.File, i.Pos));
+            }
+            else return ctx.Char;
+        }
         return ctx.I32;
     }
     private static TypeInfo InferExpressionType(Expression expr, ref FunctionContext fctx, ref Context ctx, TypeInfo? target)
@@ -661,6 +674,8 @@ public static class Compiler
                 return InferExpressionType(neg.Expr, ref fctx, ref ctx, target);
             case NullExpression nullexpr:
                 return InferNull(ref ctx, target);
+            case CharExpression :
+                return target?.Equals(ctx.U8) == true ? ctx.U8 : ctx.Char;
             case DereferenceExpression deref:
                 {
                     var underlaying = InferExpressionType(deref.Expr, ref fctx, ref ctx, target);
@@ -793,6 +808,7 @@ public static class Compiler
             new TypeInfo("u8", 1),
             new TypeInfo("void", 0),
             new TypeInfo("bool", 1),
+            new TypeInfo("char", 1),
         };
         ctx.Types = types.ToDictionary(x => x.Name);
         ctx.Void = ctx.Types["void"];
@@ -805,6 +821,7 @@ public static class Compiler
         ctx.U16 = ctx.Types["u16"];
         ctx.U8 = ctx.Types["u8"];
         ctx.Bool = ctx.Types["bool"];
+        ctx.Char = ctx.Types["char"];
     }
 }
 

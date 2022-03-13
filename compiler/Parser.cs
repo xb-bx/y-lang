@@ -384,6 +384,7 @@ public static class Parser
                 .Or(TokenType.HexInteger)
                 .Or(TokenType.BinInteger)
                 .Or(TokenType.Id)
+                .Or(TokenType.Char)
                 .OrKeyword("new")
                 .OrKeyword("null")
                 .Or(MatchGroup.LP)
@@ -396,6 +397,7 @@ public static class Parser
             { Type: TokenType.Integer, Value: var val, Pos: var pos } => Int(matched, ref ctx, pos),
             { Type: TokenType.HexInteger, Value: var val, Pos: var pos} => HexInt(matched, ref ctx, pos),
             { Type: TokenType.BinInteger, Value: var val, Pos: var pos} => BinInt(matched, ref ctx, pos),
+            { Type: TokenType.Char, Value: var c, Pos: var pos, File: var file } => Char(c, file, pos), 
             { Type: TokenType.Id, Value: var val, Pos: var pos, File: var file } => new VariableExpression(val, pos, file),
             { Type: TokenType.Bracket, Value: "(" } => ExpressionThen(ref ctx, MatchGroup.Match(TokenType.Bracket, ")")),
             { Type: TokenType.Keyword, Value: "new", Pos: var pos } => NewObjExpression(ref ctx, pos),
@@ -422,6 +424,12 @@ public static class Parser
         }
         return expr;
     }
+
+    private static Expression Char(string c, string file, Position pos)
+    {
+        return new CharExpression(c[0], pos, file);
+    }
+
     private static Expression Int(Token token, ref Context ctx, Position pos)
     {
         var value = token.Value;

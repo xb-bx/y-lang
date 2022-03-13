@@ -1,6 +1,6 @@
 let stdout = null;
 
-fn writechar(x: u8) : void 
+fn writechar(x: char) : void 
 {
     asm 
     {
@@ -12,6 +12,16 @@ fn writechar(x: u8) : void
         invoke WriteConsoleA, [stdout], r15, r13d, 0
         add rsp, 1
     }
+}
+fn u8tochar(x: u8): char 
+{   
+    let res = ' ';
+    asm 
+    {
+        mov al, byte[rbp + 16]
+        mov byte[rbp - 8], al
+    }
+    ret res;
 }
 fn initstdout(): void 
 {
