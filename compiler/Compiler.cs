@@ -75,17 +75,21 @@ public static class Compiler
         foreach (var fn in ctx.Fns)
             Console.WriteLine($"{fn}");
         var res = new List<string>();
+        List<(List<Variable>, FnInfo)> compiledfns = new();
         foreach (var fn in ctx.Fns)
         {
             Console.WriteLine($"Compiling {fn}");
             var f = CompileFn(ref ctx, fn);
+            compiledfns.Add((f.Variables, f.Info));
             Console.WriteLine("VARS");
             f.Variables.ForEach(Console.WriteLine);
-            if(f.Info is not null)
-            {
-                f.Info.Compiled?.ForEach(Console.WriteLine);
-                res.AddRange(IRCompiler.Compile(f.Info.Compiled, f.Variables, fn));
-            }
+        }
+        foreach(var (vars, fn) in compiledfns)
+        {
+            if(!fn.WasUsed && fn.Name != "main")
+                continue;
+            fn.Compiled?.ForEach(Console.WriteLine);
+            res.AddRange(IRCompiler.Compile(fn.Compiled, vars, fn));
         }
         var globalsinit = IRCompiler.Compile(instrs, new(), null!);
         var result = new StringBuilder();
@@ -471,6 +475,7 @@ public static class Compiler
                     x--;
                 }
             }
+            fn.WasUsed = true;
             var res = new Variable($"__temp_{fctx.TempCount++}", fn.RetType);
             fctx.Variables.Add(res);
             var args = new List<Source>();

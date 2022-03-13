@@ -7,6 +7,7 @@ public class FnInfo
 {
     public string Name { get; private set; }
     public string NameInAsm { get; private set; }
+    public bool WasUsed { get; set; }
     public List<TypeInfo> Params { get; private set; }
     public List<InstructionBase>? Compiled { get; set; }
     public TypeInfo RetType { get; private set; }

@@ -4,13 +4,8 @@ fn writechar(x: char) : void
 {
     asm 
     {
-        sub rsp, 1
-        mov al, byte[rbp + 16]
-        mov byte[rsp], al
-        mov r15, rsp
-        mov r13, 1
-        invoke WriteConsoleA, [stdout], r15, r13d, 0
-        add rsp, 1
+        lea rbx, [rbp + 16]
+        invoke WriteConsoleA, [stdout], rbx, 1, 0
     }
 }
 fn u8tochar(x: u8): char 
