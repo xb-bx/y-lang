@@ -8,6 +8,23 @@ fn writechar(x: char) : void
         invoke WriteConsoleA, [stdout], rbx, 1, 0
     }
 }
+fn strlen(str: *char): u32 
+{
+    let i: u32 = 0;
+    while *(str + i) != 0
+        i = i + 1;
+    ret i;
+}
+fn writestr(str: *char) : void 
+{
+    let len = strlen(str);
+    asm 
+    {
+        mov rbx, [rbp + 16]
+        mov r10d, dword[rbp - 8]
+        invoke WriteConsoleA, [stdout], rbx, r10d, 0
+    }
+}
 fn u8tochar(x: u8): char 
 {   
     let res = ' ';

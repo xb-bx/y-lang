@@ -39,7 +39,7 @@ public static class Parser
                 var stack = new StackTrace();
                 fallback.Pos = res.Pos;
                 fallback.File = res.File;
-                Errors.Add(new Error($"Unexpected {res} at {stack}", res.File, res.Pos));
+                Errors.Add(new Error($"Unexpected {res}", res.File, res.Pos));
                 return fallback;
             }
         }
@@ -385,6 +385,7 @@ public static class Parser
                 .Or(TokenType.BinInteger)
                 .Or(TokenType.Id)
                 .Or(TokenType.Char)
+                .Or(TokenType.String)
                 .OrKeyword("new")
                 .OrKeyword("null")
                 .Or(MatchGroup.LP)
@@ -398,6 +399,7 @@ public static class Parser
             { Type: TokenType.HexInteger, Value: var val, Pos: var pos} => HexInt(matched, ref ctx, pos),
             { Type: TokenType.BinInteger, Value: var val, Pos: var pos} => BinInt(matched, ref ctx, pos),
             { Type: TokenType.Char, Value: var c, Pos: var pos, File: var file } => Char(c, file, pos), 
+            { Type: TokenType.String, Value: var str, Pos: var pos, File:var file } => new StringExpression(str, file, pos),
             { Type: TokenType.Id, Value: var val, Pos: var pos, File: var file } => new VariableExpression(val, pos, file),
             { Type: TokenType.Bracket, Value: "(" } => ExpressionThen(ref ctx, MatchGroup.Match(TokenType.Bracket, ")")),
             { Type: TokenType.Keyword, Value: "new", Pos: var pos } => NewObjExpression(ref ctx, pos),

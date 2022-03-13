@@ -12,6 +12,7 @@ public static class Compiler
         public List<FnInfo> Fns = null!;
         public List<Error> Errors = new();
         public List<Variable> Globals = new();
+        public Dictionary<string, Constant<string>> StringConstants = new();
         public TypeInfo? GetTypeInfo(TypeExpression typeexpr)
         {
             if (typeexpr is PtrType ptr)
@@ -105,11 +106,13 @@ public static class Compiler
             .AppendLine("call main")
             .AppendLine("invoke ExitProcess, 0")
             .AppendLine(string.Join('\n', res));
-        if(ctx.Globals.Count > 0)
+        if(ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
         {
             result.AppendLine("section '.data' data readable writable");
             foreach(var global in ctx.Globals)
                 result.AppendLine($"{global.Name} dq 0");
+            foreach(var (s, str) in ctx.StringConstants)
+                result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x)) }");
         }
         result
             .AppendLine("section '.idata' import data readable writeable")
@@ -122,7 +125,7 @@ public static class Compiler
 
     private static bool IsConstant(Expression value)
     {
-        return value is IntegerExpression or NullExpression or BoolExpression;
+        return value is IntegerExpression or NullExpression or BoolExpression or CharExpression or StringExpression;
     }
 
     private ref struct FunctionContext
@@ -420,10 +423,24 @@ public static class Compiler
             FunctionCallExpression fncall => CompileFnCall(fncall, ref fctx, ref ctx, instructions),
             DereferenceExpression deref => CompileDeref(deref, ref fctx, ref ctx, instructions),
             NullExpression => new Constant<long>(0, ctx.I64),
+            StringExpression s => CompileStr(s.Value, ref ctx), 
             CharExpression c=> targetType?.Equals(ctx.U8) == true ? new Constant<byte>((byte)c.Value, ctx.U8) : new Constant<byte>((byte)c.Value, ctx.Char),
         };
     }
 
+    private static Source CompileStr(string value, ref Context ctx)
+    {
+        if(ctx.StringConstants.TryGetValue(value, out var v))
+        {
+            return v;
+        }
+        else 
+        {
+            var str = new Constant<string>($"str{ctx.StringConstants.Count}", new PtrTypeInfo(ctx.Char));
+            ctx.StringConstants.Add(value, str);
+            return str;
+        }
+    }
 
     private static Source CompileDeref(DereferenceExpression deref, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
@@ -681,6 +698,8 @@ public static class Compiler
                 return InferNull(ref ctx, target);
             case CharExpression :
                 return target?.Equals(ctx.U8) == true ? ctx.U8 : ctx.Char;
+            case StringExpression:
+                return new PtrTypeInfo(ctx.Char);
             case DereferenceExpression deref:
                 {
                     var underlaying = InferExpressionType(deref.Expr, ref fctx, ref ctx, target);

@@ -1,6 +1,6 @@
 include "utils.y";
 
-let map: *u8 = null;
+let map: *char = null;
 let snake: *i32 = null;
 let snakelen: i32 = 0;
 let sizex = 28;
@@ -13,7 +13,6 @@ let fruity = 0;
 
 fn main(): void 
 {
-    let len = sizex * sizey;
     asm 
     {
         sub rsp, 2048
@@ -37,8 +36,6 @@ fn main(): void
         movesnake();
         fillmap();
         drawmap();
-        writechar(numtohex(i32tou8(fruitx)));
-        writechar(numtohex(i32tou8(fruity)));
         sleep(55);
     }
 }
@@ -141,10 +138,10 @@ fn nl(): void
 fn initsnake(): void 
 {
     snakelen = 2;
-    *snake = 5;
-    *(snake + 1) = 1;
-    *(snake + 2) = 5;
-    *(snake + 3) = 1;
+    *snake = 2;
+    *(snake + 1) = 2;
+    *(snake + 2) = 2;
+    *(snake + 3) = 2;
 }
 fn input(): void 
 {
@@ -185,11 +182,11 @@ fn fillmap() : void
             
             if x == 0 || x == sizex - 1 || y == 0 || y == sizey - 1 
             {
-                *(map + ((y * (sizex + 2)) + x)) = 35;
+                *(map + ((y * (sizex + 2)) + x)) = '#';
             }
             else 
             {
-                *(map + ((y * (sizex + 2)) + x)) = 46;
+                *(map + ((y * (sizex + 2)) + x)) = '.';
             }
 
             x = x + 1;
@@ -198,15 +195,15 @@ fn fillmap() : void
         *(map + ((y * (sizex + 2)) + (sizex + 1))) = 13;
         y = y + 1;
     }
-    *(map + (((*(snake + 1)) * (sizex + 2)) + (*snake))) = 48;
+    *(map + (((*(snake + 1)) * (sizex + 2)) + (*snake))) = '0';
     let i = 1;
     while i < snakelen {
         let sx = *(snake + i * 2);
         let sy = *(snake + i * 2 + 1);
-        *(map + ((sy * (sizex + 2)) + sx)) = 111;
+        *(map + ((sy * (sizex + 2)) + sx)) = 'o';
         i = i + 1;
     }
-    *(map + (fruity * (sizex + 2)) + fruitx) = 0x41;
+    *(map + (fruity * (sizex + 2)) + fruitx) = 'A';
 
 }
 fn drawmap() : void 
@@ -236,19 +233,4 @@ fn get_key_state(key: i32): i32
         mov dword[rbp - 8], eax
     }
     ret res;
-}
-fn writeascii(x:i32, count: i32) : void 
-{
-    asm 
-    {
-        sub rsp, 8
-        mov rax, qword[rbp + 16]
-        mov qword[rsp], rax
-        invoke GetStdHandle, STD_OUTPUT_HANDLE
-        mov r14, rax
-        mov r15, rsp
-        mov r13, qword[rbp + 24]
-        invoke WriteConsoleA, r14, r15, r13d, 0
-        add rsp, 8
-    }
 }
