@@ -170,7 +170,7 @@ public class IRCompiler
                         1 => ("byte", "al", "bl"),
                         2 => ("word", "ax", "bx"),
                         4 => ("dword", "eax", "ebx"),
-                        8 => ("qword", "rax", "rbx"),
+                        _ => ("qword", "rax", "rbx"),
                     };
                     CompileSource(instr.First, lines, size, reg1);
                     CompileSource(instr.Second, lines, size, reg2);
@@ -291,17 +291,17 @@ public class IRCompiler
             case Operation.Index:
                 {
                     var underlayingSize = (instr.First.Type as PtrTypeInfo)?.Underlaying.Size;
-                    var (size, reg, reg1) = underlayingSize switch
+                    var (size, reg) = underlayingSize switch
                     {
-                        1 => ("byte", "al", "cl"),
-                        2 => ("word", "ax", "cx"),
-                        4 => ("dword", "eax", "ecx"),
-                        _ => ("qword", "rax", "rcx"),
+                        1 => ("byte", "cl"),
+                        2 => ("word", "cx"),
+                        4 => ("dword", "ecx"),
+                        _ => ("qword", "rcx"),
                     };
                     CompileSource(instr.First, lines, "qword", "rax");
                     CompileSource(instr.Second, lines, "qword", "rbx");
-                    lines.Add($"mov {reg1}, {size}[rax + rbx * {underlayingSize}]");
-                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg1}");
+                    lines.Add($"mov {reg}, {size}[rax + rbx * {underlayingSize}]");
+                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}");
                 }
                 break;
         }

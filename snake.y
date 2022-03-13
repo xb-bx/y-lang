@@ -3,7 +3,7 @@ include "std/convert.y";
 
 let map: *char = null;
 let snake: *i32 = null;
-let snakelen: i32 = 0;
+let snakelen: u64 = 0;
 let sizex = 28;
 let sizey = 22;
 let dirx = 1;
@@ -66,8 +66,8 @@ fn movesnake() : void
 {
     let i = snakelen - 1;
     
-    let hx = *snake + dirx;
-    let hy = *(snake + 1) + diry;
+    let hx = snake[0] + dirx;
+    let hy = snake[1] + diry;
     
     if hx == sizex - 1 hx = 1;
     if hx == 0 hx = sizex - 2;
@@ -77,8 +77,8 @@ fn movesnake() : void
     if hx == fruitx && hy == fruity
     {
         let ind = snakelen * 2;
-        *(snake + ind) = *snake;
-        *(snake + (ind + 1)) = *(snake + 1);
+        snake[ind] = snake[0];
+        snake[ind + 1] = snake[1];
         snakelen = snakelen + 1;
         placefruit();
     }
@@ -86,20 +86,20 @@ fn movesnake() : void
     while i > 0
     {
         let index = i * 2;
-        *(snake + index) = *(snake + (index - 2));
-        *(snake + (index + 1)) = *(snake + (index - 1));
+        snake[index] = snake[index - 2];
+        snake[index + 1] = snake[index - 1];
         i = i - 1;
     }
 
     i = 1;
     while i < snakelen 
     {
-        let sx = *(snake + i * 2);
-        let sy = *(snake + i * 2 + 1);
+        let sx = snake[i * 2];
+        let sy = snake[i * 2 + 1];
         if sx == hx && sy == hy
         {
             writestr("Your score is: ");
-            writenum(snakelen - 2);
+            writenum(i32(snakelen - 2));
             asm 
             {
                 mov rsp, rbp
@@ -109,8 +109,8 @@ fn movesnake() : void
         }
         i = i + 1;
     }
-    *snake = hx;
-    *(snake + 1) = hy;
+    snake[0] = hx;
+    snake[1] = hy;
 }
 fn nextrnd() : i32
 {
@@ -141,10 +141,10 @@ fn nl(): void
 fn initsnake(): void 
 {
     snakelen = 2;
-    *snake = 2;
-    *(snake + 1) = 2;
-    *(snake + 2) = 2;
-    *(snake + 3) = 2;
+    snake[0] = 2;
+    snake[1] = 2;
+    snake[2] = 2;
+    snake[4] = 2;
 }
 fn input(): void 
 {
@@ -185,28 +185,28 @@ fn fillmap() : void
             
             if x == 0 || x == sizex - 1 || y == 0 || y == sizey - 1 
             {
-                *(map + ((y * (sizex + 2)) + x)) = '#';
+                map[u64(y * (sizex + 2) + x)] = '#';
             }
             else 
             {
-                *(map + ((y * (sizex + 2)) + x)) = '.';
+                map[u64(y * (sizex + 2) + x)] = '.';
             }
 
             x = x + 1;
         }
-        *(map + ((y * (sizex + 2)) + (sizex))) = 10;
-        *(map + ((y * (sizex + 2)) + (sizex + 1))) = 13;
+        map[u64(y * (sizex + 2) + sizex)] = 10;
+        map[u64(y * (sizex + 2) + sizex + 1)] = 13;
         y = y + 1;
     }
-    *(map + (((*(snake + 1)) * (sizex + 2)) + (*snake))) = '0';
-    let i = 1;
+    map[u64(snake[1] * (sizex + 2) + snake[0])] = '0';
+    let i:u64 = 1;
     while i < snakelen {
-        let sx = *(snake + i * 2);
-        let sy = *(snake + i * 2 + 1);
-        *(map + ((sy * (sizex + 2)) + sx)) = 'o';
+        let sx = snake[i * 2];
+        let sy = snake[i * 2 + 1];
+        map[u64(sy * (sizex + 2) + sx)] = 'o';
         i = i + 1;
     }
-    *(map + (fruity * (sizex + 2)) + fruitx) = 'A';
+    map[u64(fruity * (sizex + 2) + fruitx)] = 'A';
 
 }
 fn drawmap() : void 

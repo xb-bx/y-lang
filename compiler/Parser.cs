@@ -10,6 +10,7 @@ public static class Parser
         public int Pos;
         public List<Token> Tokens = null!;
         public List<Error> Errors = new();
+        public HashSet<string> Included = new();
         public bool Match(MatchGroup match, out Token token)
         {
             if (Pos < Tokens.Count)
@@ -76,10 +77,14 @@ public static class Parser
                     {
                         if(File.Exists(file.Value))
                         {
-                            var toks = Lexer.Tokenize(File.ReadAllText(file.Value), Path.GetFileName(file.Value), out var errs);
-                            ctx.Errors.AddRange(errs);
-                            ctx.ForceMatch(MatchGroup.Semicolon);
-                            ctx.Tokens.InsertRange(ctx.Pos, toks.Take(toks.Count - 1));
+                            if(!ctx.Included.Contains(file.Value))
+                            {
+                                ctx.Included.Add(file.Value);
+                                var toks = Lexer.Tokenize(File.ReadAllText(file.Value), Path.GetFileName(file.Value), out var errs);
+                                ctx.Errors.AddRange(errs);
+                                ctx.ForceMatch(MatchGroup.Semicolon);
+                                ctx.Tokens.InsertRange(ctx.Pos, toks.Take(toks.Count - 1));
+                            }
                         }
                         else 
                         {

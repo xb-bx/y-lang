@@ -112,7 +112,7 @@ public static class Compiler
             foreach(var global in ctx.Globals)
                 result.AppendLine($"{global.Name} dq 0");
             foreach(var (s, str) in ctx.StringConstants)
-                result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x)) }");
+                result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
         }
         result
             .AppendLine("section '.idata' import data readable writeable")

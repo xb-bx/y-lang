@@ -64,7 +64,11 @@ fn writenum(x: i32): void
         writechar(buff[index]);
     }
 }
-fn modulo(x: i32, y:i32) : i32 
+fn modulo(x:u64, y:u64): u64 
+{
+    ret u64(modulo(i32(x), i32(y)));
+} 
+fn modulo(x: i32, y: i32) : i32 
 {
     let res = 0;
     asm 
@@ -76,6 +80,7 @@ fn modulo(x: i32, y:i32) : i32
     }
     ret res;
 }
+
 fn clear() : void 
 {
     asm 
@@ -125,4 +130,33 @@ fn enableVT() : void
         mov r15, [rbp - 8]
         invoke SetConsoleMode, r15, r14 
     }
+}
+fn pow(x: i32, pow:i32): i32
+{
+    if pow == 0 
+        ret 1;
+    else if pow == 1
+        ret x;
+    let res = x;
+    while pow > 1 
+    {
+        res = res * x;
+        pow = pow - 1;
+    }
+    ret res;
+}
+fn parsei32(str: *char): i32
+{
+    let len = (strlen(str));
+    let i = len - 1;
+    let x = 0;
+    let res = 0;
+    while i >= 0
+    {
+        let n = i32(u8(str[i] - 48));
+        res = res + n * pow(10, x);
+        i = i - 1;
+        x = x + 1;
+    }
+    ret res;
 }
