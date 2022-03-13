@@ -1,4 +1,5 @@
-include "utils.y";
+include "std/utils.y";
+include "std/convert.y";
 
 let map: *char = null;
 let snake: *i32 = null;
@@ -57,9 +58,9 @@ fn placefruit() : void
 fn numtohex(num: u8): char 
 {
     if num > 10 
-        ret u8tochar(num + 0x41 - 10);
+        ret char(num + 0x41 - 10);
     else 
-        ret u8tochar(num + 48);
+        ret char(num + 48);
 }
 fn movesnake() : void
 {
@@ -97,6 +98,8 @@ fn movesnake() : void
         let sy = *(snake + i * 2 + 1);
         if sx == hx && sy == hy
         {
+            writestr("Your score is: ");
+            writenum(snakelen - 2);
             asm 
             {
                 mov rsp, rbp

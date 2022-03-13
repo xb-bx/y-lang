@@ -10,6 +10,7 @@ namespace YLang
             if(!source.Exists)
                 return false;
             var tokens = Lexer.Tokenize(File.ReadAllText(source.FullName), Path.GetFileName(source.FullName), out var lerrors);
+            Console.WriteLine(tokens.Count);
             var statements = Parser.Parse(tokens, out var errors);
             foreach(var statement in statements)
                 Console.WriteLine(statement.GetType());

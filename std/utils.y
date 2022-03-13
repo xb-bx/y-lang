@@ -1,3 +1,4 @@
+include "std/convert.y";
 let stdout = null;
 
 fn writechar(x: char) : void 
@@ -25,16 +26,6 @@ fn writestr(str: *char) : void
         invoke WriteConsoleA, [stdout], rbx, r10d, 0
     }
 }
-fn u8tochar(x: u8): char 
-{   
-    let res = ' ';
-    asm 
-    {
-        mov al, byte[rbp + 16]
-        mov byte[rbp - 8], al
-    }
-    ret res;
-}
 fn initstdout(): void 
 {
     asm 
@@ -49,6 +40,28 @@ fn sleep(ms: i32) : void
     asm 
     {
         invoke Sleep, dword[rbp + 16]
+    }
+}
+fn writenum(x: i32): void
+{
+    let buff: *char = null;
+    asm 
+    {
+        sub rsp, 32
+        mov [rbp - 8], rsp
+    }
+    let index: u64 = 0;
+    while x > 0 
+    {
+        let rem = modulo(x, 10);
+        buff[index] = char(rem + 48);
+        index = index + 1;
+        x = x / 10;
+    }
+    while index > 0
+    {
+        index = index - 1;
+        writechar(buff[index]);
     }
 }
 fn modulo(x: i32, y:i32) : i32 

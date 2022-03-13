@@ -235,6 +235,28 @@ public static class Compiler
                         var destexpr = CompileExpression(deref.Expr, ref fctx, ref ctx, instructions, null) as Variable;
                         instructions.Add(new Instruction(Operation.SetRef, res, null, destexpr));
                     }
+                    else if(ass.Expr is IndexExpression index)
+                    {
+                        var type = InferExpressionType(index, ref fctx, ref ctx, null);
+                        var valueType = InferExpressionType(ass.Value, ref fctx, ref ctx, type);
+                        if(!type.Equals(valueType))
+                        {
+                            ctx.Errors.Add(new Error($"Cannot store value of type {valueType} to {type}", ass.File, ass.Pos));
+                        }
+                        var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, valueType);
+                        var destexpr = CompileExpression(index.Indexed, ref fctx, ref ctx, instructions, null) as Variable;
+                        var indexType = InferExpressionType(index.Indexes[0], ref fctx, ref ctx, ctx.U64);
+                        if(!indexType.Equals(ctx.U64))
+                        {
+                            ctx.Errors.Add(new Error($"Cannot index with type {indexType}", index.File, index.Indexes[0].Pos));
+                        }
+                        var temp = new Variable($"__temp_{fctx.TempCount++}", new PtrTypeInfo(type));
+                        fctx.Variables.Add(temp);
+                        var indexval = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instructions, ctx.U64);
+                        instructions.Add(new Instruction(Operation.Add, destexpr, indexval, temp));
+                        instructions.Add(new Instruction(Operation.SetRef, res, null, temp));
+                    }
+
                 }
                 break;
             case BlockStatement block:
@@ -511,7 +533,7 @@ public static class Compiler
     {
         if (index.Indexes.Count > 1)
             throw new NotImplementedException();
-        var type = InferExpressionType(index.Indexed, ref fctx, ref ctx, null);
+        var type = InferExpressionType(index.Indexed, ref fctx, ref ctx, ctx.U64);
         if (type is PtrTypeInfo ptr)
         {
             TypeInfo destType = ptr.Underlaying;
@@ -625,6 +647,10 @@ public static class Compiler
         if (target.Equals(ctx.I64))
         {
             return ctx.I64;
+        }
+        else if (target.Equals(ctx.U64))
+        {
+            return ctx.U64;
         }
         else if (target.Equals(ctx.I32))
         {

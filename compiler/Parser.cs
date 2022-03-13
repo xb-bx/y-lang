@@ -173,7 +173,9 @@ public static class Parser
     private static Statement AssignOrFunctionCall(ref Context ctx)
     {
         ctx.Pos--;
+        Console.WriteLine(ctx.Tokens[ctx.Pos]);
         var expr = SimpleExpression(ref ctx);
+        Console.WriteLine(expr);
         if (expr is not FunctionCallExpression and not ValueCallExpression and not MethodCallExpression)
         {
             ctx.ForceMatch(MatchGroup.EQ);

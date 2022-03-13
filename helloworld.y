@@ -1,6 +1,6 @@
-include "utils.y";
+include "std/utils.y";
 fn main(): void 
 {    
     initstdout();    
-    writestr("Hello, world!");
+    writenum(12345);
 }
