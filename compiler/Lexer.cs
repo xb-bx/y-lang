@@ -7,6 +7,7 @@ public static class Lexer
     private static readonly HashSet<string> keywords = new()
     {
         "false",
+        "cast",
         "true",
         "if",
         "else",

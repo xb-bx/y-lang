@@ -393,6 +393,7 @@ public static class Parser
                 .Or(TokenType.Id)
                 .Or(TokenType.Char)
                 .Or(TokenType.String)
+                .OrKeyword("cast")
                 .OrKeyword("new")
                 .OrKeyword("null")
                 .Or(MatchGroup.LP)
@@ -408,6 +409,7 @@ public static class Parser
             { Type: TokenType.Char, Value: var c, Pos: var pos, File: var file } => Char(c, file, pos), 
             { Type: TokenType.String, Value: var str, Pos: var pos, File:var file } => new StringExpression(str, file, pos),
             { Type: TokenType.Id, Value: var val, Pos: var pos, File: var file } => new VariableExpression(val, pos, file),
+            { Type: TokenType.Keyword, Value: "cast", Pos: var pos} => Cast(ref ctx, pos),
             { Type: TokenType.Bracket, Value: "(" } => ExpressionThen(ref ctx, MatchGroup.Match(TokenType.Bracket, ")")),
             { Type: TokenType.Keyword, Value: "new", Pos: var pos } => NewObjExpression(ref ctx, pos),
             { Type: TokenType.Keyword, Value: "false", Pos: var pos, File: var file } => new BoolExpression(false, pos, file),
@@ -433,7 +435,15 @@ public static class Parser
         }
         return expr;
     }
-
+    private static Expression Cast(ref Context ctx, Position pos)
+    {
+        ctx.ForceMatch(MatchGroup.LP);
+        var val = Expression(ref ctx);
+        ctx.ForceMatch(MatchGroup.Match(TokenType.Comma));
+        var type = ParseType(ref ctx);
+        ctx.ForceMatch(MatchGroup.RP);
+        return new CastExpression(val, type, pos);
+    }
     private static Expression Char(string c, string file, Position pos)
     {
         return new CharExpression(c[0], pos, file);

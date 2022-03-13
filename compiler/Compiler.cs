@@ -52,14 +52,14 @@ public static class Compiler
         var globals = statements.OfType<LetStatement>().ToList();
         var globalctx = new FunctionContext();
         var instrs = new List<InstructionBase>();
-        foreach(var global in globals)
+        foreach (var global in globals)
         {
             Console.WriteLine(global.Name);
-            if(IsConstant(global.Value))
+            if (IsConstant(global.Value))
             {
                 CompileStatement(ref globalctx, ref ctx, global, instrs);
             }
-            else 
+            else
             {
                 ctx.Errors.Add(new Error("Global variables cannot be initialized only with constant values", global.Value.File, global.Value.Pos));
             }
@@ -85,9 +85,9 @@ public static class Compiler
             Console.WriteLine("VARS");
             f.Variables.ForEach(Console.WriteLine);
         }
-        foreach(var (vars, fn) in compiledfns)
+        foreach (var (vars, fn) in compiledfns)
         {
-            if(!fn.WasUsed && fn.Name != "main")
+            if (!fn.WasUsed && fn.Name != "main")
                 continue;
             fn.Compiled?.ForEach(Console.WriteLine);
             res.AddRange(IRCompiler.Compile(fn.Compiled, vars, fn));
@@ -106,12 +106,12 @@ public static class Compiler
             .AppendLine("call main")
             .AppendLine("invoke ExitProcess, 0")
             .AppendLine(string.Join('\n', res));
-        if(ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
+        if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
         {
             result.AppendLine("section '.data' data readable writable");
-            foreach(var global in ctx.Globals)
+            foreach (var global in ctx.Globals)
                 result.AppendLine($"{global.Name} dq 0");
-            foreach(var (s, str) in ctx.StringConstants)
+            foreach (var (s, str) in ctx.StringConstants)
                 result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
         }
         result
@@ -203,8 +203,8 @@ public static class Compiler
                 {
                     if (ass.Expr is VariableExpression varr)
                     {
-                        Variable? v = fctx.Variables.FirstOrDefault(x => x.Name == varr.Name) ?? ctx.Globals.FirstOrDefault(x =>x.Name == varr.Name);
-                        if(v is not null)
+                        Variable? v = fctx.Variables.FirstOrDefault(x => x.Name == varr.Name) ?? ctx.Globals.FirstOrDefault(x => x.Name == varr.Name);
+                        if (v is not null)
                         {
                             var type = InferExpressionType(ass.Value, ref fctx, ref ctx, v.Type);
                             if (!type.Equals(v.Type))
@@ -235,18 +235,18 @@ public static class Compiler
                         var destexpr = CompileExpression(deref.Expr, ref fctx, ref ctx, instructions, null) as Variable;
                         instructions.Add(new Instruction(Operation.SetRef, res, null, destexpr));
                     }
-                    else if(ass.Expr is IndexExpression index)
+                    else if (ass.Expr is IndexExpression index)
                     {
                         var type = InferExpressionType(index, ref fctx, ref ctx, null);
                         var valueType = InferExpressionType(ass.Value, ref fctx, ref ctx, type);
-                        if(!type.Equals(valueType))
+                        if (!type.Equals(valueType))
                         {
                             ctx.Errors.Add(new Error($"Cannot store value of type {valueType} to {type}", ass.File, ass.Pos));
                         }
                         var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, valueType);
                         var destexpr = CompileExpression(index.Indexed, ref fctx, ref ctx, instructions, null) as Variable;
                         var indexType = InferExpressionType(index.Indexes[0], ref fctx, ref ctx, ctx.U64);
-                        if(!indexType.Equals(ctx.U64))
+                        if (!indexType.Equals(ctx.U64))
                         {
                             ctx.Errors.Add(new Error($"Cannot index with type {indexType}", index.File, index.Indexes[0].Pos));
                         }
@@ -289,8 +289,8 @@ public static class Compiler
             case CallStatement call:
                 CompileExpression(call.Call, ref fctx, ref ctx, instructions, null);
                 var fnca = instructions.LastOrDefault() as FnCallInstruction;
-                if(fnca is not null && fnca.Dest is not null)
-                {   
+                if (fnca is not null && fnca.Dest is not null)
+                {
                     fctx.Variables.Remove(fnca.Dest);
                     fnca.Dest = null;
                 }
@@ -339,11 +339,11 @@ public static class Compiler
                     var condType = InferExpressionType(ifElse.Condition, ref fctx, ref ctx, ctx.Bool);
                     if (condType != ctx.Bool)
                         ctx.Errors.Add(new Error($"Condition must be boolean", ifElse.File, ifElse.Condition.Pos));
-                    if(ifElse.Condition is BinaryExpression bin && bin.Op is "&&" or "||")
+                    if (ifElse.Condition is BinaryExpression bin && bin.Op is "&&" or "||")
                     {
-                        CompileLazyBoolean(bin, ifstart, elsestart, ref fctx, ref ctx, instructions); 
+                        CompileLazyBoolean(bin, ifstart, elsestart, ref fctx, ref ctx, instructions);
                     }
-                    else 
+                    else
                     {
                         var cond = CompileExpression(ifElse.Condition, ref fctx, ref ctx, instructions, ctx.Bool);
                         var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse);
@@ -381,48 +381,48 @@ public static class Compiler
 
     private static void CompileLazyBoolean(BinaryExpression bin, Label ifstart, Label elsestart, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
-        if(bin.Op is "&&")
+        if (bin.Op is "&&")
         {
-            if(bin.Left is BinaryExpression bleft && bleft.Op is "&&" or "||")
+            if (bin.Left is BinaryExpression bleft && bleft.Op is "&&" or "||")
             {
                 var snd = fctx.NewLabel();
                 CompileLazyBoolean(bleft, snd, elsestart, ref fctx, ref ctx, instructions);
                 instructions.Add(snd);
             }
-            else 
+            else
             {
                 var first = CompileExpression(bin.Left, ref fctx, ref ctx, instructions, ctx.Bool);
                 instructions.Add(new Jmp(elsestart, first, JumpType.JmpFalse));
             }
-            if(bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
+            if (bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
             {
                 var snd = fctx.NewLabel();
                 CompileLazyBoolean(bright, snd, elsestart, ref fctx, ref ctx, instructions);
                 instructions.Add(snd);
             }
-            else 
+            else
             {
                 var second = CompileExpression(bin.Right, ref fctx, ref ctx, instructions, ctx.Bool);
                 instructions.Add(new Jmp(elsestart, second, JumpType.JmpFalse));
             }
             instructions.Add(new Jmp(ifstart, null, JumpType.Jmp));
         }
-        else 
+        else
         {
-            if(bin.Left is BinaryExpression bleft && bleft.Op is "&&" or "||")
+            if (bin.Left is BinaryExpression bleft && bleft.Op is "&&" or "||")
             {
                 CompileLazyBoolean(bleft, ifstart, elsestart, ref fctx, ref ctx, instructions);
             }
-            else 
+            else
             {
                 var first = CompileExpression(bin.Left, ref fctx, ref ctx, instructions, ctx.Bool);
                 instructions.Add(new Jmp(ifstart, first, JumpType.JmpTrue));
             }
-            if(bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
+            if (bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
             {
                 CompileLazyBoolean(bright, ifstart, elsestart, ref fctx, ref ctx, instructions);
             }
-            else 
+            else
             {
                 var second = CompileExpression(bin.Right, ref fctx, ref ctx, instructions, ctx.Bool);
                 instructions.Add(new Jmp(ifstart, second, JumpType.JmpTrue));
@@ -445,18 +445,29 @@ public static class Compiler
             FunctionCallExpression fncall => CompileFnCall(fncall, ref fctx, ref ctx, instructions),
             DereferenceExpression deref => CompileDeref(deref, ref fctx, ref ctx, instructions),
             NullExpression => new Constant<long>(0, ctx.I64),
-            StringExpression s => CompileStr(s.Value, ref ctx), 
-            CharExpression c=> targetType?.Equals(ctx.U8) == true ? new Constant<byte>((byte)c.Value, ctx.U8) : new Constant<byte>((byte)c.Value, ctx.Char),
+            StringExpression s => CompileStr(s.Value, ref ctx),
+            CastExpression cast => CompileCast(cast, ref fctx, ref ctx, instructions),
+            CharExpression c => targetType?.Equals(ctx.U8) == true ? new Constant<byte>((byte)c.Value, ctx.U8) : new Constant<byte>((byte)c.Value, ctx.Char),
         };
+    }
+
+    private static Source CompileCast(CastExpression cast, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+        var type = ctx.GetTypeInfo(cast.Type) ?? ctx.Void;
+        var res = new Variable($"__temp_{fctx.TempCount++}", type);
+        fctx.Variables.Add(res);
+        var val = CompileExpression(cast.Value, ref fctx, ref ctx, instructions, null);
+        instructions.Add(new Instruction(Operation.Equals, val, null, res));
+        return res;
     }
 
     private static Source CompileStr(string value, ref Context ctx)
     {
-        if(ctx.StringConstants.TryGetValue(value, out var v))
+        if (ctx.StringConstants.TryGetValue(value, out var v))
         {
             return v;
         }
-        else 
+        else
         {
             var str = new Constant<string>($"str{ctx.StringConstants.Count}", new PtrTypeInfo(ctx.Char));
             ctx.StringConstants.Add(value, str);
@@ -483,19 +494,19 @@ public static class Compiler
         }
         var fn = ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params));
         var prev = ctx.Errors.Count;
-        if(fn is null)
+        if (fn is null)
         {
             var posibles = ctx.Fns.Where(x => x.Name == fncall.Name && x.Params.Count == fncall.Args.Count).ToList();
-            if(posibles.Count != 0)
+            if (posibles.Count != 0)
             {
-                foreach(var posible in posibles)
+                foreach (var posible in posibles)
                 {
                     types.Clear();
-                    foreach(var (arg, type) in fncall.Args.Zip(posible.Params))
+                    foreach (var (arg, type) in fncall.Args.Zip(posible.Params))
                     {
                         types.Add(InferExpressionType(arg, ref fctx, ref ctx, type));
                     }
-                    if(types.SequenceEqual(posible.Params))
+                    if (types.SequenceEqual(posible.Params))
                     {
                         fn = posible;
                         break;
@@ -505,10 +516,10 @@ public static class Compiler
         }
         if (fn is not null)
         {
-            if(prev != ctx.Errors.Count)
+            if (prev != ctx.Errors.Count)
             {
                 var x = ctx.Errors.Count - prev;
-                while(x > 0)
+                while (x > 0)
                 {
                     ctx.Errors.RemoveAt(ctx.Errors.Count - 1);
                     x--;
@@ -592,7 +603,7 @@ public static class Compiler
         {
             return v;
         }
-        else if(ctx.Globals.FirstOrDefault(x => x.Name == varr.Name) is Variable gvar)
+        else if (ctx.Globals.FirstOrDefault(x => x.Name == varr.Name) is Variable gvar)
         {
             return gvar;
         }
@@ -608,7 +619,7 @@ public static class Compiler
         var exprtarget = ctx.Bool.Equals(target) ? null : target;
         var leftType = InferExpressionType(bin.Left, ref fctx, ref ctx, exprtarget);
         var rightType = InferExpressionType(bin.Right, ref fctx, ref ctx, leftType);
-        if (!((leftType is PtrTypeInfo || rightType is PtrTypeInfo) && !(leftType is PtrTypeInfo && rightType is PtrTypeInfo)) && 
+        if (!((leftType is PtrTypeInfo || rightType is PtrTypeInfo) && !(leftType is PtrTypeInfo && rightType is PtrTypeInfo)) &&
                 leftType != rightType)
         {
             ctx.Errors.Add(new Error($"Cannot apply operator '{bin.Op}'", bin.File, bin.Pos));
@@ -722,10 +733,22 @@ public static class Compiler
                 return InferExpressionType(neg.Expr, ref fctx, ref ctx, target);
             case NullExpression nullexpr:
                 return InferNull(ref ctx, target);
-            case CharExpression :
+            case CharExpression:
                 return target?.Equals(ctx.U8) == true ? ctx.U8 : ctx.Char;
             case StringExpression:
                 return new PtrTypeInfo(ctx.Char);
+            case CastExpression cast:
+                {
+                    if (ctx.GetTypeInfo(cast.Type) is TypeInfo type)
+                    {
+                        return type;
+                    }
+                    else
+                    {
+                        ctx.Errors.Add(new Error($"Unknown type {cast.Type}", cast.File, cast.Type.Pos));
+                        return ctx.Void;
+                    }
+                }
             case DereferenceExpression deref:
                 {
                     var underlaying = InferExpressionType(deref.Expr, ref fctx, ref ctx, target);
@@ -744,7 +767,7 @@ public static class Compiler
                 {
                     return varr.Type;
                 }
-                else if(ctx.Globals.FirstOrDefault(x => x.Name == v.Name) is Variable gvar)
+                else if (ctx.Globals.FirstOrDefault(x => x.Name == v.Name) is Variable gvar)
                 {
                     return gvar.Type;
                 }
