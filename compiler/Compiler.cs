@@ -44,7 +44,7 @@ public static class Compiler
         public TypeInfo Char = null!;
         public TypeInfo Bool = null!;
     }
-    public static List<Error> Compile(List<Statement> statements, string output)
+    public static List<Error> Compile(List<Statement> statements, string output, Target target)
     {
         var ctx = new Context();
         AddDefaultTypes(ref ctx);
@@ -91,31 +91,58 @@ public static class Compiler
         }
         var globalsinit = IRCompiler.Compile(instrs, new(), null!);
         var result = new StringBuilder();
-        result
-            .AppendLine("format PE64 CONSOLE")
-            .AppendLine("entry __start")
-            .AppendLine("include 'win64axp.inc'")
-            .AppendLine("True = 1")
-            .AppendLine("False = 0")
-            .AppendLine("section '.code' code readable executable")
-            .AppendLine("__start:")
-            .AppendLine(string.Join('\n', globalsinit))
-            .AppendLine("call main")
-            .AppendLine("invoke ExitProcess, 0")
-            .AppendLine(string.Join('\n', res));
-        if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
+        if (target is Target.Windows)
         {
-            result.AppendLine("section '.data' data readable writable");
-            foreach (var global in ctx.Globals)
-                result.AppendLine($"{global.Name} dq 0");
-            foreach (var (s, str) in ctx.StringConstants)
-                result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
+            result
+                .AppendLine("format PE64 CONSOLE")
+                .AppendLine("entry __start")
+                .AppendLine("include 'win64axp.inc'")
+                .AppendLine("True = 1")
+                .AppendLine("False = 0")
+                .AppendLine("section '.code' code readable executable")
+                .AppendLine("__start:")
+                .AppendLine(string.Join('\n', globalsinit))
+                .AppendLine("call main")
+                .AppendLine("invoke ExitProcess, 0")
+                .AppendLine(string.Join('\n', res));
+            if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
+            {
+                result.AppendLine("section '.data' data readable writable");
+                foreach (var global in ctx.Globals)
+                    result.AppendLine($"{global.Name} dq 0");
+                foreach (var (s, str) in ctx.StringConstants)
+                    result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
+            }
+            result
+                .AppendLine("section '.idata' import data readable writeable")
+                .AppendLine("library kernel32,'kernel32.dll', user32, 'user32.dll'")
+                .AppendLine("include 'api\\kernel32.inc'")
+                .AppendLine("include 'api\\user32.inc'");
         }
-        result
-            .AppendLine("section '.idata' import data readable writeable")
-            .AppendLine("library kernel32,'kernel32.dll', user32, 'user32.dll'")
-            .AppendLine("include 'api\\kernel32.inc'")
-            .AppendLine("include 'api\\user32.inc'");
+        else 
+        {
+            result
+                .AppendLine("format ELF64 executable")
+                .AppendLine("entry __start")
+                .AppendLine("True = 1")
+                .AppendLine("False = 0")
+                .AppendLine("segment readable executable")
+                .AppendLine("__start:")
+                .AppendLine(string.Join('\n', globalsinit))
+                .AppendLine("call main")
+                .AppendLine("mov rax, 60")
+                .AppendLine("xor rdi, rdi")
+                .AppendLine("syscall")
+                .AppendLine(string.Join('\n', res));
+            if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
+            {
+                result.AppendLine("segment readable writable");
+                foreach (var global in ctx.Globals)
+                    result.AppendLine($"{global.Name} dq 0");
+                foreach (var (s, str) in ctx.StringConstants)
+                    result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
+            }
+        }
         File.WriteAllText(output, result.ToString());
         return ctx.Errors;
     }
@@ -145,7 +172,7 @@ public static class Compiler
     }
     private static bool IsConstant(Expression value)
     {
-        return value is IntegerExpression or NullExpression or BoolExpression or CharExpression or StringExpression 
+        return value is IntegerExpression or NullExpression or BoolExpression or CharExpression or StringExpression
             || (value is NewObjExpression newobj && newobj.Args.All(IsConstant));
     }
 
@@ -277,7 +304,7 @@ public static class Compiler
                             ctx.Errors.Add(new Error($"Cannot index with type {indexType}", index.File, index.Indexes[0].Pos));
                         }
                         var temp = fctx.NewTemp(new PtrTypeInfo(type));
-                        
+
                         var indexval = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instructions, ctx.U64);
                         instructions.Add(new Instruction(Operation.Add, destexpr, indexval, temp));
                         instructions.Add(new Instruction(Operation.SetRef, res, null, temp));
@@ -705,7 +732,7 @@ public static class Compiler
                 instrs.Add(new Instruction(Operation.Ref, v, null, res));
                 return res;
             }
-            if(target is not null && !v.Type.Equals(target))
+            if (target is not null && !v.Type.Equals(target))
             {
                 var res = fctx.NewTemp(new PtrTypeInfo(target));
                 instrs.Add(new Instruction(Operation.Equals, v, null, res));
@@ -721,7 +748,7 @@ public static class Compiler
                 instrs.Add(new Instruction(Operation.Ref, gvar, null, res));
                 return res;
             }
-            if(target is not null && !gvar.Type.Equals(target))
+            if (target is not null && !gvar.Type.Equals(target))
             {
                 var res = fctx.NewTemp(new PtrTypeInfo(target));
                 instrs.Add(new Instruction(Operation.Equals, gvar, null, res));
@@ -846,11 +873,11 @@ public static class Compiler
         => t.Name is "u64" or "i64" or "u32" or "i32" or "u16" or "i16" or "u8" or "i8";
     private static bool CanImplicitlyConvertNumber(TypeInfo from, TypeInfo to)
     {
-        if(from.Size > to.Size)
+        if (from.Size > to.Size)
             return false;
-        if(from.Equals(to))
+        if (from.Equals(to))
             return true;
-        if(from.Name[0] == to.Name[0])
+        if (from.Name[0] == to.Name[0])
             return true;
         return false;
     }
@@ -926,34 +953,34 @@ public static class Compiler
             case VariableExpression v:
                 if (fctx.Variables.FirstOrDefault(x => x.Name == v.Name) is Variable varr)
                 {
-                    if(target is not null)
+                    if (target is not null)
                     {
-                        if(target.Equals(varr.Type))
+                        if (target.Equals(varr.Type))
                             return target;
-                        if(IsNumberType(target) && IsNumberType(varr.Type) && CanImplicitlyConvertNumber(varr.Type, target) && !implicitref)
+                        if (IsNumberType(target) && IsNumberType(varr.Type) && CanImplicitlyConvertNumber(varr.Type, target) && !implicitref)
                         {
                             return target;
                         }
-                        else 
+                        else
                         {
                             ctx.Errors.Add(new Error($"Cannot implicitly convert {varr.Type} to {target}", v.File, v.Pos));
                             return target;
                         }
                     }
-                    else 
+                    else
                         return implicitref ? new PtrTypeInfo(varr.Type) : varr.Type;
                 }
                 else if (ctx.Globals.FirstOrDefault(x => x.Name == v.Name) is Variable gvar)
                 {
-                    if(target is not null)
+                    if (target is not null)
                     {
-                        if(target.Equals(gvar.Type))
+                        if (target.Equals(gvar.Type))
                             return target;
-                        if(IsNumberType(target) && IsNumberType(gvar.Type) && CanImplicitlyConvertNumber(gvar.Type, target) && !implicitref)
+                        if (IsNumberType(target) && IsNumberType(gvar.Type) && CanImplicitlyConvertNumber(gvar.Type, target) && !implicitref)
                         {
                             return target;
                         }
-                        else 
+                        else
                         {
                             ctx.Errors.Add(new Error($"Cannot implicitly convert {gvar.Type} to {target}", v.File, v.Pos));
                             return target;

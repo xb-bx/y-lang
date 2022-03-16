@@ -2,10 +2,15 @@
 
 namespace YLang
 {
+    public enum Target 
+    {
+        Windows,
+        Linux
+    }
     [App]
     public class Program
     {
-        public static bool Compile(FileInfo source)
+        public static bool Compile(FileInfo source, Target target)
         {
             if(!source.Exists)
                 return false;
@@ -14,7 +19,7 @@ namespace YLang
             var statements = Parser.Parse(tokens, out var errors);
             foreach(var statement in statements)
                 Console.WriteLine(statement.GetType());
-            var cerrors = Compiler.Compile(statements, Path.ChangeExtension(source.FullName, ".asm"));
+            var cerrors = Compiler.Compile(statements, Path.ChangeExtension(source.FullName, ".asm"), target);
             Console.ForegroundColor = ConsoleColor.Red;
             var errs = errors.Concat(lerrors).Concat(cerrors).ToList();
             foreach (var error in errs)
@@ -27,9 +32,10 @@ namespace YLang
         }
         public static void Run(FileInfo source)
         {
-            if(Compile(source))
+            var target = Environment.OSVersion.Platform == PlatformID.Win32NT ? Target.Windows : Target.Linux;
+            if(Compile(source, target))
             {
-                Process.Start(Path.ChangeExtension(source.FullName, ".exe")).WaitForExit();
+                Process.Start(target is Target.Windows ? Path.ChangeExtension(source.FullName, ".exe") : Path.GetFileNameWithoutExtension(source.FullName)).WaitForExit();
             }
         }
     }
