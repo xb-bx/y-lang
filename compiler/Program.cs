@@ -15,8 +15,10 @@ namespace YLang
             if(!source.Exists)
                 return false;
             var tokens = Lexer.Tokenize(File.ReadAllText(source.FullName), Path.GetFileName(source.FullName), out var lerrors);
+            tokens.ForEach(x => Console.WriteLine(x));
+            lerrors.ForEach(x => Console.WriteLine(x));
             Console.WriteLine(tokens.Count);
-            var statements = Parser.Parse(tokens, out var errors);
+            var statements = Parser.Parse(tokens, out var errors, new HashSet<string>() { target.ToString().ToUpper() });
             foreach(var statement in statements)
                 Console.WriteLine(statement.GetType());
             var cerrors = Compiler.Compile(statements, Path.ChangeExtension(source.FullName, ".asm"), target);

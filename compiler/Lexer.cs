@@ -84,6 +84,15 @@ public static class Lexer
         {
             switch (code[pos])
             {
+                case '#': 
+                    {
+                        pos++;
+                        curPos.Column++;
+                        var id = Id(ref ctx);
+                        id.Type = TokenType.Preprocessor;
+                        res.Add(id);
+                    }
+                    break;
                 case char c when char.IsDigit(c):
                     res.Add(Int(ref ctx));
                     break;

@@ -10,12 +10,29 @@ public static class Parser
         public int Pos;
         public List<Token> Tokens = null!;
         public List<Error> Errors = new();
-        public HashSet<string> Included = new();
+        public HashSet<string> Included = new(), Symbols = null!;
         public bool Match(MatchGroup match, out Token token)
         {
             if (Pos < Tokens.Count)
             {
                 token = Tokens[Pos++];
+                if (token.Type == TokenType.Preprocessor)
+                {
+                    if (token.Value == "if")
+                    {
+                        var symbol = Tokens[Pos].Value;
+                        if (!Symbols.Contains(symbol))
+                        {
+                            var tok = Tokens[++Pos];
+                            while (tok.Type != TokenType.Preprocessor && tok.Value != "endif")
+                            {
+                                tok = Tokens[++Pos];
+                            }
+                            Pos++;
+                        }
+                    }
+                    token = Tokens[Pos++];
+                }
                 var res = match.Match(token);
                 if (!res)
                     Pos--;
@@ -52,14 +69,15 @@ public static class Parser
 
 
     }
-    public static List<Statement> Parse(List<Token> tokens, out List<Error> errors)
+    public static List<Statement> Parse(List<Token> tokens, out List<Error> errors, HashSet<string> definedSymbols)
     {
-        var ctx = new Context() { Tokens = tokens };
+        var ctx = new Context() { Tokens = tokens, Symbols = definedSymbols };
         errors = ctx.Errors;
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
             var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("include").OrKeyword("struct"), out var t);
+            Console.WriteLine($"{m} {t}");
             if (m)
             {
                 switch (t.Value)
@@ -103,7 +121,7 @@ public static class Parser
         var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
         ctx.ForceMatch(MatchGroup.LBRC);
         var fields = new List<FieldDefinitionStatement>();
-        while(!ctx.Match(MatchGroup.RBRC, out _))
+        while (!ctx.Match(MatchGroup.RBRC, out _))
         {
             fields.Add(Field(ref ctx));
         }

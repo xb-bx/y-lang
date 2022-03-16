@@ -17,5 +17,6 @@ public enum TokenType
     Colon,
     Dot,
     Char,
+    Preprocessor,
 }
 
