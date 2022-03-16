@@ -59,51 +59,72 @@ public static class Parser
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
-            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("include"), out var t);
-            if(m)
+            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("include").OrKeyword("struct"), out var t);
+            if (m)
             {
-                if(t.Value == "fn")
+                switch (t.Value)
                 {
-                    res.Add(ParseFunction(ref ctx, t.Pos));
-                }
-                else if(t.Value == "let")
-                {
-                    res.Add(Let(ref ctx, t.Pos));
-                }
-                else 
-                {
-                    var file = ctx.ForceMatch(MatchGroup.Match(TokenType.String), new Token { Type = TokenType.String, Value = "<undefined>" });
-                    if(file.Value != "<undefined>")
-                    {
-                        if(File.Exists(file.Value))
+                    case "fn": res.Add(ParseFunction(ref ctx, t.Pos)); break;
+                    case "let": res.Add(Let(ref ctx, t.Pos)); break;
+                    case "struct": res.Add(Struct(ref ctx, t.Pos)); break;
+                    case "include":
                         {
-                            if(!ctx.Included.Contains(file.Value))
+                            var file = ctx.ForceMatch(MatchGroup.Match(TokenType.String), new Token { Type = TokenType.String, Value = "<undefined>" });
+                            if (file.Value != "<undefined>")
                             {
-                                ctx.Included.Add(file.Value);
-                                var toks = Lexer.Tokenize(File.ReadAllText(file.Value), Path.GetFileName(file.Value), out var errs);
-                                ctx.Errors.AddRange(errs);
-                                ctx.ForceMatch(MatchGroup.Semicolon);
-                                ctx.Tokens.InsertRange(ctx.Pos, toks.Take(toks.Count - 1));
+                                if (File.Exists(file.Value))
+                                {
+                                    if (!ctx.Included.Contains(file.Value))
+                                    {
+                                        ctx.Included.Add(file.Value);
+                                        var toks = Lexer.Tokenize(File.ReadAllText(file.Value), Path.GetFileName(file.Value), out var errs);
+                                        ctx.Errors.AddRange(errs);
+                                        ctx.ForceMatch(MatchGroup.Semicolon);
+                                        ctx.Tokens.InsertRange(ctx.Pos, toks.Take(toks.Count - 1));
+                                    }
+                                }
+                                else
+                                {
+                                    ctx.Errors.Add(new Error($"Cannot find file {file.Value}", file.File, file.Pos));
+                                }
                             }
                         }
-                        else 
-                        {
-                            ctx.Errors.Add(new Error($"Cannot find file {file.Value}", file.File, file.Pos));
-                        }
-                    }
+                        break;
                 }
             }
-            else 
+            else
                 ctx.Pos++;
         }
         return res;
     }
+
+    private static Statement Struct(ref Context ctx, Position pos)
+    {
+        var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+        ctx.ForceMatch(MatchGroup.LBRC);
+        var fields = new List<FieldDefinitionStatement>();
+        while(!ctx.Match(MatchGroup.RBRC, out _))
+        {
+            fields.Add(Field(ref ctx));
+        }
+        return new StructDefinitionStatement(name.Value, fields, name.Pos, name.File);
+    }
+
+    private static FieldDefinitionStatement Field(ref Context ctx)
+    {
+        var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+        ctx.ForceMatch(MatchGroup.Colon);
+        var type = ParseType(ref ctx);
+        ctx.ForceMatch(MatchGroup.Semicolon);
+        return new FieldDefinitionStatement(name.Value, type, name.Pos);
+    }
+
     private static FnDefinitionStatement ParseFunction(ref Context ctx, Position pos)
     {
         var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
         var parameters = new List<Parameter>();
         ctx.ForceMatch(MatchGroup.LP);
-        while(!ctx.Match(MatchGroup.RP, out _))
+        while (!ctx.Match(MatchGroup.RP, out _))
         {
             var pname = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
             ctx.ForceMatch(MatchGroup.Colon);
@@ -126,7 +147,7 @@ public static class Parser
                 .OrKeyword("while")
                 .OrOp("*")
                 .Or(TokenType.Id)
-                .Or(MatchGroup.LBRC), 
+                .Or(MatchGroup.LBRC),
         Token.UndefinedId);
         var st = tok switch
         {
@@ -146,14 +167,14 @@ public static class Parser
     {
         ctx.ForceMatch(MatchGroup.LBRC);
         var body = new List<Token>();
-        while(!ctx.Match(MatchGroup.RBRC, out _))
+        while (!ctx.Match(MatchGroup.RBRC, out _))
         {
-            if(ctx.Match(TokenType.EOF, out var eof))
+            if (ctx.Match(TokenType.EOF, out var eof))
             {
                 ctx.Errors.Add(new Error("Unexpected EOF", eof.File, pos));
                 break;
             }
-            else 
+            else
             {
                 body.Add(ctx.Tokens[ctx.Pos++]);
             }
@@ -169,7 +190,7 @@ public static class Parser
     private static Statement Block(ref Context ctx, Position pos, string file)
     {
         var sts = new List<Statement>();
-        while(!ctx.Match(MatchGroup.RBRC, out _))
+        while (!ctx.Match(MatchGroup.RBRC, out _))
         {
             sts.Add(Statement(ref ctx));
         }
@@ -220,12 +241,12 @@ public static class Parser
     {
         var cond = Expression(ref ctx);
         var body = Statement(ref ctx);
-        if(ctx.MatchKw("else", out _))
+        if (ctx.MatchKw("else", out _))
         {
             var els = Statement(ref ctx);
             return new IfElseStatement(cond, body, els, pos);
         }
-        else 
+        else
         {
             return new IfElseStatement(cond, body, null, pos);
         }
@@ -233,7 +254,7 @@ public static class Parser
     private static TypeExpression ParseType(ref Context ctx)
     {
         var tok = ctx.ForceMatch(MatchGroup.Id.OrOp("*"), Token.UndefinedId);
-        var type = tok switch 
+        var type = tok switch
         {
             { Type: TokenType.Operator, Value: "*", Pos: var pos } => PtrType(ref ctx, pos),
             { Type: TokenType.Id, Value: var val, Pos: var pos, File: var file } => new TypeExpression(val, pos, file),
@@ -244,7 +265,7 @@ public static class Parser
     private static PtrType PtrType(ref Context ctx, Position pos)
     {
         int depth = 1;
-        while(ctx.MatchOp("*", out _))
+        while (ctx.MatchOp("*", out _))
         {
             depth++;
         }
@@ -255,7 +276,7 @@ public static class Parser
     {
         var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
         TypeExpression? type = null;
-        if(ctx.Match(MatchGroup.Colon, out _))
+        if (ctx.Match(MatchGroup.Colon, out _))
         {
             type = ParseType(ref ctx);
         }
@@ -323,7 +344,7 @@ public static class Parser
     private static Expression Shift(ref Context ctx)
     {
         var first = Additive(ref ctx);
-        if(ctx.Match(MatchGroup.MatchOp(">>").OrOp("<<"), out var op))
+        if (ctx.Match(MatchGroup.MatchOp(">>").OrOp("<<"), out var op))
         {
             var snd = Shift(ref ctx);
             return new BinaryExpression(first, snd, op.Value);
@@ -362,7 +383,7 @@ public static class Parser
     {
         Position pos = default;
         Expression expr = null!;
-        if(ctx.Match(MatchGroup.MatchOp("*"), out var op))
+        if (ctx.Match(MatchGroup.MatchOp("*"), out var op))
         {
             pos = op.Pos;
             expr = Deref(ref ctx);
@@ -379,10 +400,10 @@ public static class Parser
     }
     private static Expression NewObjExpression(ref Context ctx, Position pos)
     {
-        var name = ctx.ForceMatch(MatchGroup.Id, new Token { Type = TokenType.Keyword, Value = "Undefined" });
+        var type = ParseType(ref ctx);
         ctx.ForceMatch(MatchGroup.LP);
         var args = CommanSeperated(ref ctx, MatchGroup.RP);
-        return new NewObjExpression(name.Value, args, pos, name.File);
+        return new NewObjExpression(type, args, pos, type.File);
     }
     private static Expression SimpleExpression(ref Context ctx)
     {
@@ -399,17 +420,17 @@ public static class Parser
                 .Or(MatchGroup.LP)
                 .OrKeyword("false")
                 .OrKeyword("true"), Token.UndefinedId);
-        if(matched.Value == "<undefined>")
+        if (matched.Value == "<undefined>")
             return new IntegerExpression(0, matched.Pos, matched.File);
         Expression expr = matched switch
         {
             { Type: TokenType.Integer, Value: var val, Pos: var pos } => Int(matched, ref ctx, pos),
-            { Type: TokenType.HexInteger, Value: var val, Pos: var pos} => HexInt(matched, ref ctx, pos),
-            { Type: TokenType.BinInteger, Value: var val, Pos: var pos} => BinInt(matched, ref ctx, pos),
-            { Type: TokenType.Char, Value: var c, Pos: var pos, File: var file } => Char(c, file, pos), 
-            { Type: TokenType.String, Value: var str, Pos: var pos, File:var file } => new StringExpression(str, file, pos),
+            { Type: TokenType.HexInteger, Value: var val, Pos: var pos } => HexInt(matched, ref ctx, pos),
+            { Type: TokenType.BinInteger, Value: var val, Pos: var pos } => BinInt(matched, ref ctx, pos),
+            { Type: TokenType.Char, Value: var c, Pos: var pos, File: var file } => Char(c, file, pos),
+            { Type: TokenType.String, Value: var str, Pos: var pos, File: var file } => new StringExpression(str, file, pos),
             { Type: TokenType.Id, Value: var val, Pos: var pos, File: var file } => new VariableExpression(val, pos, file),
-            { Type: TokenType.Keyword, Value: "cast", Pos: var pos} => Cast(ref ctx, pos),
+            { Type: TokenType.Keyword, Value: "cast", Pos: var pos } => Cast(ref ctx, pos),
             { Type: TokenType.Bracket, Value: "(" } => ExpressionThen(ref ctx, MatchGroup.Match(TokenType.Bracket, ")")),
             { Type: TokenType.Keyword, Value: "new", Pos: var pos } => NewObjExpression(ref ctx, pos),
             { Type: TokenType.Keyword, Value: "false", Pos: var pos, File: var file } => new BoolExpression(false, pos, file),
@@ -453,19 +474,19 @@ public static class Parser
     {
         var value = token.Value;
         //TODO: support uints
-        for(int i = 0; i < value.Length; i++)
+        for (int i = 0; i < value.Length; i++)
         {
-            if(!char.IsDigit(value[i]))
+            if (!char.IsDigit(value[i]))
             {
-                ctx.Errors.Add(new Error($"Integer cannot contain {value[i]}", token.File, new Position { Line = pos.Line, Column = pos.Column + i}));
+                ctx.Errors.Add(new Error($"Integer cannot contain {value[i]}", token.File, new Position { Line = pos.Line, Column = pos.Column + i }));
                 return new IntegerExpression(0, pos, token.File);
             }
         }
-        if(long.TryParse(value, out var val))
+        if (long.TryParse(value, out var val))
         {
             return new IntegerExpression(val, pos, token.File);
         }
-        else 
+        else
         {
             ctx.Errors.Add(new Error($"Invalid integer {value}", token.File, pos));
             return new IntegerExpression(0, pos, token.File);
@@ -474,19 +495,19 @@ public static class Parser
     private static Expression HexInt(Token token, ref Context ctx, Position pos)
     {
         var value = token.Value;
-        for(int i = 2 /* skip '0x' */; i < value.Length; i++)
+        for (int i = 2 /* skip '0x' */; i < value.Length; i++)
         {
-            if(!Uri.IsHexDigit(value[i]))
+            if (!Uri.IsHexDigit(value[i]))
             {
-                ctx.Errors.Add(new Error($"Hex integer cannot contain {value[i]}", token.File, new Position { Line = pos.Line, Column = pos.Column + i}));
+                ctx.Errors.Add(new Error($"Hex integer cannot contain {value[i]}", token.File, new Position { Line = pos.Line, Column = pos.Column + i }));
                 return new IntegerExpression(0, pos, token.File);
             }
         }
-        if(long.TryParse(value.AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out var val))
+        if (long.TryParse(value.AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out var val))
         {
             return new IntegerExpression(val, pos, token.File);
         }
-        else 
+        else
         {
             ctx.Errors.Add(new Error($"Invalid hex integer {value}", token.File, pos));
             return new IntegerExpression(0, pos, token.File);
@@ -495,19 +516,19 @@ public static class Parser
     private static Expression BinInt(Token token, ref Context ctx, Position pos)
     {
         var value = token.Value;
-        for(int i = 2 /* skip '0b' */; i < value.Length; i++)
+        for (int i = 2 /* skip '0b' */; i < value.Length; i++)
         {
-            if(value[i] is not '1' or '0')
+            if (value[i] is not '1' or '0')
             {
-                ctx.Errors.Add(new Error($"Binary integer cannot contain {value[i]}", token.File, new Position { Line = pos.Line, Column = pos.Column + i}));
+                ctx.Errors.Add(new Error($"Binary integer cannot contain {value[i]}", token.File, new Position { Line = pos.Line, Column = pos.Column + i }));
                 return new IntegerExpression(0, pos, token.File);
             }
         }
-        if(Helpers.Try(() => Convert.ToInt64(value.AsSpan(2).ToString(), 2), out var val))
+        if (Helpers.Try(() => Convert.ToInt64(value.AsSpan(2).ToString(), 2), out var val))
         {
             return new IntegerExpression(val, pos, token.File);
         }
-        else 
+        else
         {
             ctx.Errors.Add(new Error($"Invalid binary integer {value}", token.File, pos));
             return new IntegerExpression(0, pos, token.File);

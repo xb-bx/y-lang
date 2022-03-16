@@ -18,6 +18,23 @@ public class TypeInfo
         return HashCode.Combine(Name, Size);
     }
 }
+public class CustomTypeInfo : TypeInfo
+{
+    public Dictionary<string, FieldInfo> Fields;
+    public CustomTypeInfo(string name, Dictionary<string, FieldInfo> fields)
+    {
+        (Name, Fields) = (name, fields);
+        var last = fields.LastOrDefault().Value;
+        Size = last?.Offset + last?.Type.Size ?? 0;
+    }
+}
 
+public class FieldInfo 
+{
+    public int Offset { get; private set; }
+    public TypeInfo Type { get; private set; }
+    public FieldInfo(int offset, TypeInfo type)
+        => (Offset, Type) = (offset, type);
+}
 
 

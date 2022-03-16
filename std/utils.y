@@ -1,4 +1,3 @@
-include "std/convert.y";
 let stdout = null;
 
 fn writechar(x: char) : void 
@@ -11,10 +10,10 @@ fn writechar(x: char) : void
 }
 fn strlen(str: *char): u32 
 {
-    let i: u32 = 0;
-    while *(str + i) != 0
+    let i: u64 = 0;
+    while str[i] != 0
         i = i + 1;
-    ret i;
+    ret cast(i, u32);
 }
 fn writestr(str: *char) : void 
 {
@@ -22,7 +21,7 @@ fn writestr(str: *char) : void
     asm 
     {
         mov rbx, [rbp + 16]
-        mov r10d, dword[rbp - 8]
+        mov r10d, dword[rbp - 16]
         invoke WriteConsoleA, [stdout], rbx, r10d, 0
     }
 }
@@ -44,17 +43,27 @@ fn sleep(ms: i32) : void
 }
 fn writenum(x: i32): void
 {
+    if x == 0
+    {
+        writechar('0');
+        ret;
+    }
     let buff: *char = null;
     asm 
     {
-        sub rsp, 32
-        mov [rbp - 8], rsp
+        sub rsp, 64
+        mov [rbp - 16], rsp
+    }
+    if x < 0
+    {
+        writechar('-');
+        x = -x;
     }
     let index: u64 = 0;
     while x > 0 
     {
         let rem = modulo(x, 10);
-        buff[index] = char(rem + 48);
+        buff[index] = cast(rem + 48, char);
         index = index + 1;
         x = x / 10;
     }
@@ -64,10 +73,6 @@ fn writenum(x: i32): void
         writechar(buff[index]);
     }
 }
-fn modulo(x:u64, y:u64): u64 
-{
-    ret u64(modulo(i32(x), i32(y)));
-} 
 fn modulo(x: i32, y: i32) : i32 
 {
     let res = 0;
@@ -153,10 +158,47 @@ fn parsei32(str: *char): i32
     let res = 0;
     while i >= 0
     {
-        let n = i32(u8(str[i] - 48));
+        let n = cast((str[i] - 48), i32);
         res = res + n * pow(10, x);
         i = i - 1;
         x = x + 1;
     }
     ret res;
+}
+fn commandline(): *char 
+{
+    asm 
+    {
+        invoke GetCommandLineA
+        mov rsp, rbp
+        pop rbp
+        ret
+    }
+    ret null;
+}
+fn alloc(size: u64): *u8
+{
+    asm 
+    {
+        invoke GetProcessHeap
+        invoke HeapAlloc, rax, 8, qword[rbp + 16]
+        mov rsp, rbp
+        pop rbp
+        ret
+    }
+    ret null;
+}
+fn free(handle: *u8): void
+{
+    asm 
+    {
+        invoke GetProcessHeap
+        invoke HeapFree, rax, 0, qword[rbp + 16]
+    }
+    ret;
+}
+fn cmdargs(argc: *i32): **char 
+{
+    
+    ret null;
 }
