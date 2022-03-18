@@ -1,6 +1,6 @@
 #if WINDOWS include "std/utils.win.y"; #endif
 #if LINUX include "std/utils.linux.y"; #endif
-fn writenum(x: i32): void
+fn writenum(x: i32)
 {
     if x == 0
     {

@@ -1,5 +1,11 @@
 include "std/utils.y"; 
-fn main(): void 
-{    
-    writestr("Hello, world\n");
+fn main()
+{ 
+    let i = 0;
+    while i < 4000 
+    {   
+        writenum(i);
+        writestr("\r\n");
+        i = i + 1;
+    }
 }

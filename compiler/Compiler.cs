@@ -1074,10 +1074,10 @@ public static class Compiler
                     ctx.Errors.Add(new Error($"Undefined type {p.Type}", p.File, p.Pos));
                 }
             }
-            var retType = ctx.GetTypeInfo(fn.RetType)!;
+            var retType = fn.RetType is not null ? ctx.GetTypeInfo(fn.RetType) : ctx.Void;
             if (retType is null)
             {
-                ctx.Errors.Add(new Error($"Undefined type {fn.RetType}", fn.File, fn.RetType.Pos));
+                ctx.Errors.Add(new Error($"Undefined type {fn.RetType}", fn.File, fn.RetType!.Pos));
                 retType = ctx.Types["void"];
             }
             funcs.Add(new FnInfo(name, parameters, retType, fn));

@@ -1,4 +1,4 @@
-fn writestr(str: *char): void
+fn writestr(str: *char)
 {
     let len = strlen(str);
     asm 
@@ -10,7 +10,7 @@ fn writestr(str: *char): void
         syscall
     }
 }
-fn writechar(c: char): void 
+fn writechar(c: char) 
 {
     asm 
     {
@@ -21,7 +21,7 @@ fn writechar(c: char): void
         syscall
     }
 }
-fn clear(): void 
+fn clear() 
 {
     let str: *char = null;
     asm 

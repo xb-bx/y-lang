@@ -150,8 +150,11 @@ public static class Parser
             ctx.Match(MatchGroup.Match(TokenType.Comma), out var _);
             parameters.Add(new Parameter(pname.Value, type));
         }
-        ctx.ForceMatch(MatchGroup.Colon);
-        var retType = ParseType(ref ctx);
+        TypeExpression? retType = null;
+        if(ctx.Match(MatchGroup.Colon, out _))
+        {
+            retType = ParseType(ref ctx);
+        }
         var body = Statement(ref ctx);
         return new FnDefinitionStatement(name.Value, parameters, retType, body, pos);
     }

@@ -1,4 +1,4 @@
-fn writechar(x: char) : void 
+fn writechar(x: char)  
 {
     asm 
     {
@@ -7,7 +7,7 @@ fn writechar(x: char) : void
         invoke WriteConsoleA, rax, rbx, 1, 0
     }
 }
-fn writestr(str: *char) : void 
+fn writestr(str: *char)  
 {
     let len = strlen(str);
     asm 
@@ -18,7 +18,7 @@ fn writestr(str: *char) : void
         invoke WriteConsoleA, rax, rbx, r10d, 0
     }
 }
-fn sleep(ms: i32) : void 
+fn sleep(ms: i32)  
 {
     asm 
     {
@@ -26,7 +26,7 @@ fn sleep(ms: i32) : void
     }
 }
 
-fn clear() : void 
+fn clear()  
 {
     enableVT();
     asm 
@@ -61,7 +61,7 @@ fn clear() : void
         add rsp, 10
     }
 }
-fn enableVT() : void 
+fn enableVT()  
 {
     let hOut = 0;
     let mode = 0;
@@ -100,7 +100,7 @@ fn alloc(size: u64): *u8
     }
     ret null;
 }
-fn free(handle: *u8): void
+fn free(handle: *u8)
 {
     asm 
     {

@@ -17,7 +17,7 @@ let fruit = new Point();
 let sleeptime = 40;
 
 
-fn main(): void 
+fn main() 
 {
     dir.x = 1;
     dir.y = 0;
@@ -33,7 +33,6 @@ fn main(): void
         invoke GetTickCount
         mov dword[seed], eax
     }
-    initstdout();
     initsnake();
     enableVT();
     placefruit();
@@ -47,7 +46,7 @@ fn main(): void
         sleep(sleeptime);
     }
 }
-fn placefruit() : void
+fn placefruit() 
 {
     let x = modulo(nextrnd(), sizex);
     let y = modulo(nextrnd(), sizey);
@@ -69,7 +68,7 @@ fn numtohex(num: u8): char
     else 
         ret char(num + 48);
 }
-fn movesnake() : void
+fn movesnake() 
 {
     let i = snakelen - 1;
     let head = new Point();
@@ -135,12 +134,12 @@ fn nextrnd() : i32
     }
     ret rnd;
 }
-fn nl(): void 
+fn nl() 
 {
     writechar(0xa);
     writechar(0xd);
 }
-fn initsnake(): void 
+fn initsnake() 
 {
     snakelen = 2;
     snake[0].x = 2;
@@ -148,7 +147,7 @@ fn initsnake(): void
     snake[1].x = 2;
     snake[1].y = 2;
 }
-fn input(): void 
+fn input() 
 {
     let left = 0x25;
     let right = 0x27;
@@ -176,7 +175,7 @@ fn input(): void
     }
 
 }
-fn fillmap() : void
+fn fillmap() 
 {
     let y = 0;
     while y < sizey 
@@ -210,7 +209,7 @@ fn fillmap() : void
     map[cast(fruit.y * (sizex + 2) + fruit.x, u64)] = 'A';
 
 }
-fn drawmap() : void 
+fn drawmap()  
 {
     let len = (sizex + 2) * sizey;
     asm 
