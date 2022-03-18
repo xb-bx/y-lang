@@ -45,6 +45,7 @@ public static class Lexer
         '!',
         '&',
         '|',
+        '%',
     };
     private static readonly Dictionary<char, string> secondPartOperators = new()
     {

@@ -169,7 +169,7 @@ public class IRCompiler
                     else
                     {
                         var fst = instr.First as Variable;
-                        for (int i = 0; i < fst.Type.Size; i += 8)
+                        for (int i = 0; i < fst?.Type.Size; i += 8)
                         {
                             lines.Add($"mov rax, qword[{fst.ToAddress()} + {i}]");
                             lines.Add($"mov qword[{instr.Destination.ToAddress()} + {i}], rax");
@@ -213,20 +213,21 @@ public class IRCompiler
                     lines.Add($"mov qword[{instr.Destination.ToAddress()}], rax");
                 }
                 break;
+            case Operation.Mod:
             case Operation.Div:
                 {
-                    var (size, reg1, reg2) = instr.Destination.Type.Size switch
+                    var (size, reg1, reg2, remainder) = instr.Destination.Type.Size switch
                     {
-                        1 => ("byte", "al", "bl"),
-                        2 => ("word", "ax", "bx"),
-                        4 => ("dword", "eax", "ebx"),
-                        8 => ("qword", "rax", "rbx"),
+                        1 => ("byte", "al", "bl", "dl"),
+                        2 => ("word", "ax", "bx", "dx"),
+                        4 => ("dword", "eax", "ebx", "edx"),
+                        8 => ("qword", "rax", "rbx", "rdx"),
                     };
                     CompileSource(instr.First, lines, size, reg1);
                     CompileSource(instr.Second, lines, size, reg2);
                     lines.Add("mov rdx, 0");
                     lines.Add($"idiv {reg2}");
-                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg1}");
+                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {(instr.Op is Operation.Mod ? remainder : reg1)}");
                 }
                 break;
             case Operation.Add:

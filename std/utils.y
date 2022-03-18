@@ -21,7 +21,7 @@ fn writenum(x: i32)
     let index: u64 = 0;
     while x > 0 
     {
-        let rem = modulo(x, 10);
+        let rem = x % 10;
         buff[index] = cast(rem + 48, char);
         index = index + 1;
         x = x / 10;
@@ -31,18 +31,6 @@ fn writenum(x: i32)
         index = index - 1;
         writechar(buff[index]);
     }
-}
-fn modulo(x: i32, y: i32) : i32 
-{
-    let res = 0;
-    asm 
-    {
-        mov eax, dword[rbp + 16]
-        mov edx, 0
-        idiv dword[rbp + 24]
-        mov dword[rbp - 8], edx
-    }
-    ret res;
 }
 fn pow(x: i32, pow:i32): i32
 {

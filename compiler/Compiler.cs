@@ -783,6 +783,7 @@ public static class Compiler
             "-" => Operation.Sub,
             "*" => Operation.Mul,
             "/" => Operation.Div,
+            "%" => Operation.Mod,
             ">>" => Operation.Shr,
             "<<" => Operation.Shl,
             ">" => Operation.GT,

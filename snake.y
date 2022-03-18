@@ -1,5 +1,4 @@
 include "std/utils.y";
-include "std/convert.y";
 
 struct Point 
 {
@@ -34,7 +33,6 @@ fn main()
         mov dword[seed], eax
     }
     initsnake();
-    enableVT();
     placefruit();
     while true 
     {
@@ -48,8 +46,8 @@ fn main()
 }
 fn placefruit() 
 {
-    let x = modulo(nextrnd(), sizex);
-    let y = modulo(nextrnd(), sizey);
+    let x = nextrnd() % sizex;
+    let y = nextrnd() % sizey;
     if x <= 0 
         x = 1;
     else if x >= (sizex - 1)
@@ -64,9 +62,9 @@ fn placefruit()
 fn numtohex(num: u8): char 
 {
     if num > 10 
-        ret char(num + 0x41 - 10);
+        ret cast(num + 0x41 - 10, char);
     else 
-        ret char(num + 48);
+        ret cast(num + 48, char);
 }
 fn movesnake() 
 {
@@ -101,7 +99,7 @@ fn movesnake()
         if tail.x == head.x && tail.y == head.y
         {
             writestr("Your score is: ");
-            writenum(i32(snakelen - 2));
+            writenum(cast(snakelen - 2, i32));
             asm 
             {
                 mov rsp, rbp
@@ -136,8 +134,7 @@ fn nextrnd() : i32
 }
 fn nl() 
 {
-    writechar(0xa);
-    writechar(0xd);
+    writestr("\r\n");
 }
 fn initsnake() 
 {
@@ -186,17 +183,17 @@ fn fillmap()
             
             if x == 0 || x == sizex - 1 || y == 0 || y == sizey - 1 
             {
-                map[u64(y * (sizex + 2) + x)] = '#';
+                map[cast(y * (sizex + 2) + x, u64)] = '#';
             }
             else 
             {
-                map[u64(y * (sizex + 2) + x)] = '.';
+                map[cast(y * (sizex + 2) + x, u64)] = '.';
             }
 
             x = x + 1;
         }
-        map[u64(y * (sizex + 2) + sizex)] = 10;
-        map[u64(y * (sizex + 2) + sizex + 1)] = 13;
+        map[cast(y * (sizex + 2) + sizex, u64)] = 10;
+        map[cast(y * (sizex + 2) + sizex + 1, u64)] = 13;
         y = y + 1;
     }
     map[cast(snake[0].y * (sizex + 2) + snake[0].x, u64)] = '0';
@@ -217,15 +214,6 @@ fn drawmap()
         invoke GetStdHandle, STD_OUTPUT_HANDLE
         invoke WriteConsoleA, rax, qword[map], dword[rbp - 24], 0 
     }
-}
-fn i32tou8(i: i32) : u8 
-{
-    let res: u8 = 0;
-    asm {
-        mov al, byte[rbp + 16]
-        mov byte[rbp - 8], al;
-    }
-    ret res;
 }
 fn get_key_state(key: i32): i32 
 {  

@@ -6,6 +6,7 @@ public enum Operation
     Sub,
     Div,
     Mul,
+    Mod,
     Equals,
     GT,
     LT,

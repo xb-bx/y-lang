@@ -385,7 +385,7 @@ public static class Parser
     private static Expression Multiplicative(ref Context ctx)
     {
         var first = Negate(ref ctx);
-        if (ctx.Match(MatchGroup.MatchOp("*").OrOp("/"), out var op))
+        if (ctx.Match(MatchGroup.MatchOp("*").OrOp("/").OrOp("%"), out var op))
         {
             var snd = Multiplicative(ref ctx);
             return new BinaryExpression(first, snd, op.Value);
