@@ -447,7 +447,10 @@ public class IRCompiler
         }
         else
         {
-            lines.Add($"mov {reg}, {src}");
+            if(reg.StartsWith("r") && src is Constant<long> c && c.Value < uint.MaxValue)
+                lines.Add($"mov e{reg[1..]}, {c.Value}; opt");
+            else
+                lines.Add($"mov {reg}, {src}");
         }
     }
 }

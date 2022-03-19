@@ -44,7 +44,7 @@ public static class Compiler
         public TypeInfo Char = null!;
         public TypeInfo Bool = null!;
     }
-    public static List<Error> Compile(List<Statement> statements, string output, Target target)
+    public static List<Error> Compile(List<Statement> statements, string output, Target target, bool optimize = false)
     {
         var ctx = new Context();
         AddDefaultTypes(ref ctx);
@@ -78,6 +78,7 @@ public static class Compiler
         {
             Console.WriteLine($"Compiling {fn}");
             var f = CompileFn(ref ctx, fn);
+            Console.WriteLine(string.Join('\n', f.Info.Compiled));
             compiledfns.Add((f.Variables, f.Info));
         }
         foreach (var (vars, fn) in compiledfns)
@@ -87,6 +88,8 @@ public static class Compiler
             var fctx = new FunctionContext();
             fctx.Variables = vars;
             fctx.Info = fn;
+            if(optimize && fn.Compiled is not null)
+                Optimize(fn.Compiled);
             res.AddRange(IRCompiler.Compile(fn.Compiled, vars, fn));
         }
         var globalsinit = IRCompiler.Compile(instrs, new(), null!);
@@ -119,7 +122,7 @@ public static class Compiler
                 .AppendLine("include 'api\\kernel32.inc'")
                 .AppendLine("include 'api\\user32.inc'");
         }
-        else 
+        else
         {
             result
                 .AppendLine("format ELF64 executable")
@@ -145,6 +148,32 @@ public static class Compiler
         }
         File.WriteAllText(output, result.ToString());
         return ctx.Errors;
+    }
+    private static void Optimize(List<InstructionBase> instrs, int optimization = 4)
+    {
+        for(int opt = 0; opt < optimization; opt++)
+        for (int i = 0; i < instrs.Count; i++)
+        {
+            if (instrs[i] is Instruction instr)
+            {
+                if (instr.Op is Operation.Add or Operation.Sub && instr.Second is Constant<long> val && val.Value == 0)
+                {
+                    instrs[i] = new Instruction(Operation.Equals, instr.First, null, instr.Destination);
+                    i--;
+                }
+                else if(i + 1 < instrs.Count && instrs[i + 1] is Instruction other && other.Op is Operation.Equals && other.First is Variable fst && fst.Name == instr.Destination.Name)
+                {
+                    instrs[i] = new Instruction(instr.Op, instr.First, instr.Second, other.Destination);
+                    instrs.RemoveAt(i + 1);
+                    i--;
+                }
+                else if(instr.Op is Operation.Index && instr.Second is Constant<long> v && v.Value == 0)
+                {
+                    instrs[i] = new Instruction(Operation.Deref, instr.First, null, instr.Destination);
+                }
+            }
+            
+        }
     }
     private static void AddStructs(List<StructDefinitionStatement> structs, ref Context ctx)
     {
@@ -531,7 +560,7 @@ public static class Compiler
             CastExpression cast => CompileCast(cast, ref fctx, ref ctx, instructions),
             NewObjExpression newobj => CompileNew(newobj, ref fctx, ref ctx, instructions),
             MemberAccessExpression member => CompileMember(member, ref fctx, ref ctx, instructions, implicitref),
-            CharExpression c => targetType?.Equals(ctx.U8) == true ? new Constant<byte>((byte)c.Value, ctx.U8) : new Constant<byte>((byte)c.Value, ctx.Char),
+            CharExpression c => targetType?.Equals(ctx.U8) == true ? new Constant<long>((byte)c.Value, ctx.U8) : new Constant<long>((byte)c.Value, ctx.Char),
         };
     }
 
