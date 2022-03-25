@@ -7,6 +7,8 @@ public enum Operation
     Div,
     Mul,
     Mod,
+    Inc,
+    Dec,
     Equals,
     GT,
     LT,

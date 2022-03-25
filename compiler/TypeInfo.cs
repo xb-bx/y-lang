@@ -20,12 +20,15 @@ public class TypeInfo
 }
 public class CustomTypeInfo : TypeInfo
 {
-    public Dictionary<string, FieldInfo> Fields;
-    public CustomTypeInfo(string name, Dictionary<string, FieldInfo> fields)
+    public Dictionary<string, FieldInfo> Fields {get; private set; }
+    public List<FnInfo> Constructors { get; private set;}
+    public CustomTypeInfo(string name, Dictionary<string, FieldInfo> fields, List<FnInfo> ctors)
     {
-        (Name, Fields) = (name, fields);
+        (Name, Fields, Constructors) = (name, fields, ctors);
         var last = fields.LastOrDefault().Value;
         Size = last?.Offset + last?.Type.Size ?? 0;
+        if(Size % 8 != 0)
+            Size += 8 - (Size % 8);
     }
 }
 

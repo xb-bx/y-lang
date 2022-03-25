@@ -11,8 +11,8 @@ public class Variable : Source
         => (Name, Type, IsArg) = (name, type, isArg);
     public override string ToString()
         => $"({(IsArg ? "arg " : " ")}{Name}: {Type})";
-    public string ToAddress()
-        => IsGlobal ? Name : $"rbp + {Offset}";
+    public string ToAsm(int offset = 0)
+        => IsGlobal ? $"[{Name} + {offset}]" : $"[rbp + {Offset} + {offset}]";
 }
 
 

@@ -9,10 +9,11 @@ public static class Compiler
     private ref struct Context
     {
         public Dictionary<string, TypeInfo> Types = null!;
-        public List<FnInfo> Fns = null!;
+        public List<FnInfo> Fns = new();
         public List<Error> Errors = new();
         public List<Variable> Globals = new();
         public Dictionary<string, Constant<string>> StringConstants = new();
+        public Context() { }
         public TypeInfo? GetTypeInfo(TypeExpression typeexpr)
         {
             if (typeexpr is PtrType ptr)
@@ -74,12 +75,25 @@ public static class Compiler
         AddFunctions(ref ctx, fns);
         var res = new List<string>();
         List<(List<Variable>, FnInfo)> compiledfns = new();
-        foreach (var fn in ctx.Fns)
+        var main = ctx.Fns.FirstOrDefault(x => x.Name == "main" && x.Params.Count == 0);
+        if (main is null)
         {
-            Console.WriteLine($"Compiling {fn}");
-            var f = CompileFn(ref ctx, fn);
-            Console.WriteLine(string.Join('\n', f.Info.Compiled));
-            compiledfns.Add((f.Variables, f.Info));
+            ctx.Errors.Add(new Error("No entry point", ctx.Fns.FirstOrDefault()?.Body?.File ?? "<source>", new Position()));
+            return ctx.Errors;
+        }
+        main.WasUsed = true;
+        bool smthWasCompiled = true;
+        while (smthWasCompiled)
+        {
+            smthWasCompiled = false;
+            foreach (var fn in ctx.Fns.Where(x => x.WasUsed && x.Compiled == null))
+            {
+                smthWasCompiled = true;
+                Console.WriteLine($"Compiling {fn}");
+                var f = CompileFn(ref ctx, fn); 
+                Console.WriteLine(string.Join('\n', f.Info.Compiled));
+                compiledfns.Add((f.Variables, f.Info));
+            }
         }
         foreach (var (vars, fn) in compiledfns)
         {
@@ -88,7 +102,7 @@ public static class Compiler
             var fctx = new FunctionContext();
             fctx.Variables = vars;
             fctx.Info = fn;
-            if(optimize && fn.Compiled is not null)
+            if (optimize && fn.Compiled is not null)
                 Optimize(fn.Compiled);
             res.AddRange(IRCompiler.Compile(fn.Compiled, vars, fn));
         }
@@ -104,15 +118,19 @@ public static class Compiler
                 .AppendLine("False = 0")
                 .AppendLine("section '.code' code readable executable")
                 .AppendLine("__start:")
+                .AppendLine("push rbp")
+                .AppendLine("mov rbp, rsp")
                 .AppendLine(string.Join('\n', globalsinit))
                 .AppendLine("call main")
+                .AppendLine("mov rsp, rbp")
+                .AppendLine("pop rbp")
                 .AppendLine("invoke ExitProcess, 0")
                 .AppendLine(string.Join('\n', res));
             if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
             {
                 result.AppendLine("section '.data' data readable writable");
                 foreach (var global in ctx.Globals)
-                    result.AppendLine($"{global.Name} dq 0");
+                    result.AppendLine($"{global.Name} dq {(global.Type.Size > 8 ? string.Join(", ", Enumerable.Repeat("0", global.Type.Size / 8)) : "0")}");
                 foreach (var (s, str) in ctx.StringConstants)
                     result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
             }
@@ -133,7 +151,7 @@ public static class Compiler
                 .AppendLine("__start:")
                 .AppendLine(string.Join('\n', globalsinit))
                 .AppendLine("call main")
-                .AppendLine("mov rax, 60")
+                .AppendLine("mov eax, 60")
                 .AppendLine("xor rdi, rdi")
                 .AppendLine("syscall")
                 .AppendLine(string.Join('\n', res));
@@ -141,7 +159,7 @@ public static class Compiler
             {
                 result.AppendLine("segment readable writable");
                 foreach (var global in ctx.Globals)
-                    result.AppendLine($"{global.Name} dq 0");
+                    result.AppendLine($"{global.Name} dq {(global.Type.Size > 8 ? string.Join(", ", Enumerable.Repeat("0", global.Type.Size / 8)) : "0")}");
                 foreach (var (s, str) in ctx.StringConstants)
                     result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
             }
@@ -151,29 +169,34 @@ public static class Compiler
     }
     private static void Optimize(List<InstructionBase> instrs, int optimization = 4)
     {
-        for(int opt = 0; opt < optimization; opt++)
-        for (int i = 0; i < instrs.Count; i++)
-        {
-            if (instrs[i] is Instruction instr)
+        for (int opt = 0; opt < optimization; opt++)
+            for (int i = 0; i < instrs.Count; i++)
             {
-                if (instr.Op is Operation.Add or Operation.Sub && instr.Second is Constant<long> val && val.Value == 0)
+                if (instrs[i] is Instruction instr)
                 {
-                    instrs[i] = new Instruction(Operation.Equals, instr.First, null, instr.Destination);
-                    i--;
+                    if (instr.Op is Operation.Add or Operation.Sub && instr.Second is Constant<long> val && val.Value == 0)
+                    {
+                        instrs[i] = new Instruction(Operation.Equals, instr.First, null, instr.Destination);
+                        i--;
+                    }
+                    else if (instr.Op is Operation.Add or Operation.Sub && instr.First is Variable f && f.Name == instr.Destination.Name && instr.Second is Constant<long> cnst && cnst.Value == 1)
+                    {
+                        instrs[i] = new Instruction(instr.Op is Operation.Add ? Operation.Inc : Operation.Dec, null, null, instr.Destination);
+                        i--;
+                    }
+                    else if (i + 1 < instrs.Count && instrs[i + 1] is Instruction other && other.Op is Operation.Equals && other.First is Variable fst && fst.Name == instr.Destination.Name)
+                    {
+                        instrs[i] = new Instruction(instr.Op, instr.First, instr.Second, other.Destination);
+                        instrs.RemoveAt(i + 1);
+                        i--;
+                    }
+                    else if (instr.Op is Operation.Index && instr.Second is Constant<long> v && v.Value == 0)
+                    {
+                        instrs[i] = new Instruction(Operation.Deref, instr.First, null, instr.Destination);
+                    }
                 }
-                else if(i + 1 < instrs.Count && instrs[i + 1] is Instruction other && other.Op is Operation.Equals && other.First is Variable fst && fst.Name == instr.Destination.Name)
-                {
-                    instrs[i] = new Instruction(instr.Op, instr.First, instr.Second, other.Destination);
-                    instrs.RemoveAt(i + 1);
-                    i--;
-                }
-                else if(instr.Op is Operation.Index && instr.Second is Constant<long> v && v.Value == 0)
-                {
-                    instrs[i] = new Instruction(Operation.Deref, instr.First, null, instr.Destination);
-                }
+
             }
-            
-        }
     }
     private static void AddStructs(List<StructDefinitionStatement> structs, ref Context ctx)
     {
@@ -193,10 +216,35 @@ public static class Compiler
                 {
                     ctx.Errors.Add(new Error($"Unknown type {field.Type}", field.File, field.Type.Pos));
                 }
-                fields.Add(field.Name, new FieldInfo(offset, type));
-                offset += type.Size;
+                else
+                {    
+                    fields.Add(field.Name, new FieldInfo(offset, type));
+                    offset += type.Size;
+                }
             }
-            ctx.Types.Add(structt.Name, new CustomTypeInfo(structt.Name, fields));
+            var ctors = new List<FnInfo>();
+            var struc = new CustomTypeInfo(structt.Name, fields, ctors);
+            ctx.Types.Add(structt.Name, struc);
+            foreach (var ctor in structt.Constructors)
+            {
+                var @params = new List<(string name, TypeInfo type)>();
+                @params.Add(("this", new PtrTypeInfo(struc)));
+                foreach (var param in ctor.Params)
+                {
+                    if (ctx.GetTypeInfo(param.Type) is TypeInfo type)
+                    {
+                        @params.Add((param.Name, type));
+                    }
+                    else
+                    {
+                        ctx.Errors.Add(new Error($"Unknown type {param.Type}", param.File, param.Type.Pos));
+                    }
+                }
+                var name = $"{structt.Name}._ctor";
+                var fn = new FnInfo(name, @params, ctx.Void, ctor.Body);
+                ctx.Fns.Add(fn);
+                ctors.Add(fn);
+            }
         }
     }
     private static bool IsConstant(Expression value)
@@ -208,11 +256,12 @@ public static class Compiler
     private ref struct FunctionContext
     {
         public List<Variable> Variables = new();
-        public FnInfo Info;
+        public FnInfo Info = null!;
         public int TempCount = 0, LabelCount = 0;
         public TypeInfo RetType = null!;
         public Label NewLabel()
             => new Label(LabelCount++);
+        public FunctionContext() { }
         public Variable NewVar(string name, TypeInfo type)
         {
             var v = new Variable(name, type);
@@ -223,27 +272,21 @@ public static class Compiler
     }
     private static FunctionContext CompileFn(ref Context ctx, FnInfo info)
     {
-        if (info.RetType != ctx.Void && !CheckAllCodePathReturns(info.FnDef.Body))
+        if (info.RetType != ctx.Void && !CheckAllCodePathReturns(info.Body))
         {
-            ctx.Errors.Add(new Error("Not all code paths returns", info.FnDef.File, info.FnDef.Pos));
+            ctx.Errors.Add(new Error("Not all code paths returns", info.Body.File, info.Body.Pos));
             return new();
         }
         var res = new List<InstructionBase>();
         var fctx = new FunctionContext();
         fctx.Info = info;
         info.Compiled = res;
-        foreach (var arg in info.FnDef.Params)
+        foreach (var (arg, type) in info.Params)
         {
-            var type = ctx.GetTypeInfo(arg.Type);
-            if (type is null)
-            {
-                type = ctx.I64;
-                ctx.Errors.Add(new Error($"Undefined type {arg.Type}", arg.File, arg.Type.Pos));
-            }
-            fctx.Variables.Add(new Variable(arg.Name, type, true));
+            fctx.Variables.Add(new Variable(arg, type, true));
         }
         fctx.RetType = info.RetType;
-        CompileStatement(ref fctx, ref ctx, info.FnDef.Body, res);
+        CompileStatement(ref fctx, ref ctx, info.Body, res);
         return fctx;
     }
     private static void CompileStatement(ref FunctionContext fctx, ref Context ctx, Statement s, List<InstructionBase> instructions)
@@ -390,7 +433,7 @@ public static class Compiler
                                 sb.Clear();
                                 prevLine = token.Pos.Line;
                             }
-                            sb.Append(token.Value).Append(' ');
+                            sb.Append(token.Type is TokenType.Char ? $"'{token.Value}'" : token.Value).Append(' ');
                         }
                         ls.Add(sb.ToString());
                     }
@@ -574,10 +617,11 @@ public static class Compiler
         var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
         if (memberexprtype is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo custom && custom.Fields.TryGetValue(member.MemberName, out field))
         {
+            var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
             var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
             instructions.Add(new Instruction(Operation.Equals, src, null, temp));
-            instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempref));
-            return tempref;
+            instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
+            return tempr;
         }
         else if (((memberexprtype as CustomTypeInfo)?.Fields.TryGetValue(member.MemberName, out field) == true))
         {
@@ -596,10 +640,71 @@ public static class Compiler
 
     private static Source CompileNew(NewObjExpression newobj, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
-        if (newobj.Args.Count > 0)
-            throw new NotImplementedException();
         var type = InferExpressionType(newobj, ref fctx, ref ctx, null);
         var dest = fctx.NewTemp(type);
+        if (type is CustomTypeInfo cust)
+        {
+            if(cust.Constructors.Count == 0 && newobj.Args.Count == 0)
+            {
+                return dest;
+            }
+            var types = new List<TypeInfo>();
+            foreach (var arg in newobj.Args)
+            {
+                types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
+            }
+            var fn = cust.Constructors.FirstOrDefault(x => x.Params.Skip(1).Select(x => x.type).SequenceEqual(types));
+
+            var prev = ctx.Errors.Count;
+            if (fn is null)
+            {
+                var posibles = cust.Constructors.Where(x => x.Params.Count == newobj.Args.Count + 1).ToList();
+                if (posibles.Count != 0)
+                {
+                    foreach (var posible in posibles)
+                    {
+                        types.Clear();
+                        foreach (var (arg, (_, t)) in newobj.Args.Zip(posible.Params.Skip(1)))
+                        {
+                            types.Add(InferExpressionType(arg, ref fctx, ref ctx, t));
+                        }
+                        if (types.SequenceEqual(posible.Params.Skip(1).Select(x => x.type)))
+                        {
+                            fn = posible;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (fn is not null)
+            {
+                if (prev != ctx.Errors.Count)
+                {
+                    var x = ctx.Errors.Count - prev;
+                    while (x > 0)
+                    {
+                        ctx.Errors.RemoveAt(ctx.Errors.Count - 1);
+                        x--;
+                    }
+                }
+                fn.WasUsed = true;
+                var args = new List<Source>();
+                var ptr = fctx.NewTemp(new PtrTypeInfo(dest.Type));
+                instructions.Add(new Instruction(Operation.Ref, dest, null, ptr));
+                args.Add(ptr);
+                foreach (var (arg, (_, argtype)) in newobj.Args.Zip(fn.Params.Skip(1)))
+                    args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, argtype));
+                instructions.Add(new FnCallInstruction(fn, args, null));
+            }
+            else 
+            {
+                ctx.Errors.Add(new Error($"Type {type} has not such constructor", newobj.File, newobj.Pos));
+            }
+        }
+        else
+        {
+            ctx.Errors.Add(new Error($"Type {type} has no constructors", newobj.File, newobj.Pos));
+        }
         return dest;
     }
 
@@ -642,7 +747,7 @@ public static class Compiler
         {
             types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
         }
-        var fn = ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params));
+        var fn = ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params.Select(x => x.type)));
         var prev = ctx.Errors.Count;
         if (fn is null)
         {
@@ -654,9 +759,9 @@ public static class Compiler
                     types.Clear();
                     foreach (var (arg, type) in fncall.Args.Zip(posible.Params))
                     {
-                        types.Add(InferExpressionType(arg, ref fctx, ref ctx, type));
+                        types.Add(InferExpressionType(arg, ref fctx, ref ctx, type.type));
                     }
-                    if (types.SequenceEqual(posible.Params))
+                    if (types.SequenceEqual(posible.Params.Select(x => x.type)))
                     {
                         fn = posible;
                         break;
@@ -679,7 +784,7 @@ public static class Compiler
             var res = fctx.NewTemp(fn.RetType);
             var args = new List<Source>();
             foreach (var (arg, type) in fncall.Args.Zip(fn.Params))
-                args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs, type));
+                args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs, type.type));
             instrs.Add(new FnCallInstruction(fn, args, res));
             return res;
         }
@@ -1055,7 +1160,7 @@ public static class Compiler
                     {
                         types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
                     }
-                    if (ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params)) is FnInfo fn)
+                    if (ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params.Select(x => x.type))) is FnInfo fn)
                     {
                         return fn.RetType;
                     }
@@ -1092,12 +1197,12 @@ public static class Compiler
         foreach (var fn in fns)
         {
             var name = fn.Name;
-            var parameters = new List<TypeInfo>();
+            var parameters = new List<(string name, TypeInfo type)>();
             foreach (var p in fn.Params)
             {
                 if (ctx.GetTypeInfo(p.Type) is TypeInfo type)
                 {
-                    parameters.Add(type);
+                    parameters.Add((p.Name, type));
                 }
                 else
                 {
@@ -1110,9 +1215,9 @@ public static class Compiler
                 ctx.Errors.Add(new Error($"Undefined type {fn.RetType}", fn.File, fn.RetType!.Pos));
                 retType = ctx.Types["void"];
             }
-            funcs.Add(new FnInfo(name, parameters, retType, fn));
+            funcs.Add(new FnInfo(name, parameters, retType, fn.Body));
         }
-        ctx.Fns = funcs;
+        ctx.Fns.AddRange(funcs);
     }
 
     private static void AddDefaultTypes(ref Context ctx)

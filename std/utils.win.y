@@ -7,14 +7,13 @@ fn writechar(x: char)
         invoke WriteConsoleA, rax, rbx, 1, 0
     }
 }
-fn writestr(str: *char)  
+fn writestr(str: *char, len: u64)
 {
-    let len = strlen(str);
     asm 
     {
         invoke GetStdHandle, STD_OUTPUT_HANDLE
         mov rbx, [rbp + 16]
-        mov r10d, dword[rbp - 16]
+        mov r10d, dword[rbp + 24]
         invoke WriteConsoleA, rax, rbx, r10d, 0
     }
 }

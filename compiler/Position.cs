@@ -10,3 +10,9 @@ public struct Position
         => $"{Column} {Line}";
 }
 
+
+public enum Target
+{
+    Windows,
+    Linux
+}

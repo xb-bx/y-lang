@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace YLang;
 
 public static class Helpers 
@@ -14,6 +16,12 @@ public static class Helpers
         {
             return false;
         }
+    }
+    public static int RunAndWaitForExitCode(string exe, string args)
+    {
+        var proc = Process.Start(exe, args);
+        proc.WaitForExit();
+        return proc.ExitCode;
     }
 }
 

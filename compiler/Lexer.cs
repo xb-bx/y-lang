@@ -23,6 +23,7 @@ public static class Lexer
         "asm",
         "null",
         "include",
+        "constructor",
     };
     private static readonly HashSet<char> brackets = new()
     {
@@ -66,12 +67,13 @@ public static class Lexer
 
     private ref struct Context
     {
-        public int Pos;
+        public int Pos = 0;
         public string File = "source";
         public string Code = null!;
         public List<Error> Errors = new();
-        public Position CurrentPos;
+        public Position CurrentPos = default;
         public StringBuilder Builder = new();
+        public Context() {}
     }
     public static List<Token> Tokenize(string code, string file, out List<Error> errors)
     {

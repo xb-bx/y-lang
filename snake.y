@@ -4,17 +4,38 @@ struct Point
 {
     x: i32;
     y: i32;
+    constructor(x: i32, y: i32) 
+    {
+        *this.x = x;
+        *this.y = y;
+    }
 }
 let map: *char = null;
 let snake: *Point = null;
 let snakelen: u64 = 0;
-let sizex = 28;
-let sizey = 22;
-let dir = new Point();
+let sizex = 50;
+let sizey = 25;
+let dir = new Point(0, 0);
 let seed = 0;
-let fruit = new Point();
-let sleeptime = 40;
+let fruit = new Point(0, 0);
+let sleeptime = 35;
 
+fn setcursor()
+{
+    asm 
+    {
+        sub rsp, 8
+        mov byte[rsp], 27
+        mov byte[rsp + 1], '['
+        mov byte[rsp + 2], '1'
+        mov byte[rsp + 3], ';'
+        mov byte[rsp + 4], '1'
+        mov byte[rsp + 5], 'H'
+        mov rdi, rsp
+        invoke GetStdHandle, STD_OUTPUT_HANDLE
+        invoke WriteConsoleA, rax, rdi, 6, 0 
+    }
+}
 
 fn main() 
 {
@@ -32,15 +53,17 @@ fn main()
         invoke GetTickCount
         mov dword[seed], eax
     }
+    let len = sizey * (sizex + 2); 
     initsnake();
     placefruit();
+    clear();
     while true 
     {
-        clear();
+        setcursor();
         input();
         movesnake();
         fillmap();
-        drawmap();
+        writestr(map, len);
         sleep(sleeptime);
     }
 }
@@ -69,9 +92,8 @@ fn numtohex(num: u8): char
 fn movesnake() 
 {
     let i = snakelen - 1;
-    let head = new Point();
-    head.x = snake[0].x + dir.x;
-    head.y = snake[0].y + dir.y;
+    let head = new Point(0, 0);
+    head.x = snake[0].x + dir.x; head.y = snake[0].y + dir.y;
     
     if head.x == sizex - 1 head.x = 1;
     if head.x == 0 head.x = sizex - 2;
@@ -98,7 +120,8 @@ fn movesnake()
         let tail = snake[i];
         if tail.x == head.x && tail.y == head.y
         {
-            writestr("Your score is: ");
+            clear();
+            writestr("Your score is: ", 15);
             writenum(cast(snakelen - 2, i32));
             asm 
             {
@@ -134,15 +157,13 @@ fn nextrnd() : i32
 }
 fn nl() 
 {
-    writestr("\r\n");
+    writestr("\r\n", 2);
 }
 fn initsnake() 
 {
     snakelen = 2;
-    snake[0].x = 2;
-    snake[0].y = 2;
-    snake[1].x = 2;
-    snake[1].y = 2;
+    snake[0] = new Point(2, 2);
+    snake[1] = new Point(2, 2);
 }
 fn input() 
 {
@@ -205,15 +226,6 @@ fn fillmap()
     }
     map[cast(fruit.y * (sizex + 2) + fruit.x, u64)] = 'A';
 
-}
-fn drawmap()  
-{
-    let len = (sizex + 2) * sizey;
-    asm 
-    {
-        invoke GetStdHandle, STD_OUTPUT_HANDLE
-        invoke WriteConsoleA, rax, qword[map], dword[rbp - 24], 0 
-    }
 }
 fn get_key_state(key: i32): i32 
 {  

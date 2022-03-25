@@ -7,10 +7,11 @@ public static class Parser
 {
     private ref struct Context
     {
-        public int Pos;
+        public int Pos = 0;
         public List<Token> Tokens = null!;
         public List<Error> Errors = new();
         public HashSet<string> Included = new(), Symbols = null!;
+        public Context() { }
         public bool Match(MatchGroup match, out Token token)
         {
             if (Pos < Tokens.Count)
@@ -54,7 +55,6 @@ public static class Parser
             }
             else
             {
-                var stack = new StackTrace();
                 fallback.Pos = res.Pos;
                 fallback.File = res.File;
                 Errors.Add(new Error($"Unexpected {res}", res.File, res.Pos));
@@ -69,8 +69,50 @@ public static class Parser
 
 
     }
+    private static List<Token> Preprocess(List<Token> tokens, HashSet<string> definedSymbols)
+    {
+        void Skip(ref int i, List<Token> tokens)
+        {
+                while(tokens[i] is not Token { Type: TokenType.Preprocessor, Value: "endif"})
+                {
+                    if(tokens[i] is Token { Type: TokenType.Preprocessor, Value: "if"})
+                    {
+                        i++;
+                        Skip(ref i, tokens);
+                    } 
+                    i++;
+                }
+            i--;
+        }
+        var result = new List<Token>(tokens.Count);
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            var token = tokens[i];
+            if (token.Type is TokenType.Preprocessor)
+            {
+                if (token.Value is "if")
+                {
+                    if (i + 1 < tokens.Count && tokens[i + 1] is Token { Type: TokenType.Id, Value: var symbol })
+                    {
+                        i++;
+                        if(!definedSymbols.Contains(symbol))
+                        {
+                            Skip(ref i, tokens);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                result.Add(token);
+            }
+        }
+        return result;
+    }
     public static List<Statement> Parse(List<Token> tokens, out List<Error> errors, HashSet<string> definedSymbols)
     {
+        tokens = Preprocess(tokens, definedSymbols);
+        tokens.ForEach(x => Console.WriteLine(x));
         var ctx = new Context() { Tokens = tokens, Symbols = definedSymbols };
         errors = ctx.Errors;
         var res = new List<Statement>();
@@ -121,11 +163,40 @@ public static class Parser
         var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
         ctx.ForceMatch(MatchGroup.LBRC);
         var fields = new List<FieldDefinitionStatement>();
+        var constructors = new List<ConstructorDefinitionStatement>();
         while (!ctx.Match(MatchGroup.RBRC, out _))
         {
-            fields.Add(Field(ref ctx));
+            var token = ctx.ForceMatch(MatchGroup.MatchKeyword("constructor").Or(TokenType.Id));
+            Console.WriteLine($"STRUCT: {token}");
+            switch (token)
+            {
+                case { Type: TokenType.Keyword, Value: "constructor" }:
+                    constructors.Add(Constructor(ref ctx));
+                    break;
+                case { Type: TokenType.Id }:
+                    ctx.Pos--;
+                    fields.Add(Field(ref ctx));
+                    break;
+            }
         }
-        return new StructDefinitionStatement(name.Value, fields, name.Pos, name.File);
+
+        return new StructDefinitionStatement(name.Value, fields, constructors, name.Pos, name.File);
+    }
+    private static ConstructorDefinitionStatement Constructor(ref Context ctx)
+    {
+        ctx.ForceMatch(MatchGroup.LP);
+        var parameters = new List<Parameter>();
+        while (!ctx.Match(MatchGroup.RP, out _))
+        {
+            var pname = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+            ctx.ForceMatch(MatchGroup.Colon);
+            var type = ParseType(ref ctx);
+            ctx.Match(MatchGroup.Match(TokenType.Comma), out var _);
+            parameters.Add(new Parameter(pname.Value, type));
+        }
+
+        var body = Statement(ref ctx);
+        return new ConstructorDefinitionStatement(parameters, body);
     }
 
     private static FieldDefinitionStatement Field(ref Context ctx)
@@ -151,7 +222,7 @@ public static class Parser
             parameters.Add(new Parameter(pname.Value, type));
         }
         TypeExpression? retType = null;
-        if(ctx.Match(MatchGroup.Colon, out _))
+        if (ctx.Match(MatchGroup.Colon, out _))
         {
             retType = ParseType(ref ctx);
         }

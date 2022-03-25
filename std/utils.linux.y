@@ -1,12 +1,11 @@
-fn writestr(str: *char)
+fn writestr(str: *char, len: u64)
 {
-    let len = strlen(str);
     asm 
     {
-        mov rax, 1
-        mov rdi, 1
+        mov eax, 1
+        mov edi, 1
         mov rsi, [rbp + 16]
-        mov rdx, [rbp - 16]
+        mov rdx, [rbp + 24]
         syscall
     }
 }
@@ -14,10 +13,10 @@ fn writechar(c: char)
 {
     asm 
     {
-        mov rax, 1
-        mov rdi, 1
+        mov eax, 1
+        mov edi, 1
         lea rsi, [rbp + 16]
-        mov rdx, 1
+        mov edx, 1
         syscall
     }
 }

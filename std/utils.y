@@ -1,24 +1,34 @@
 #if WINDOWS include "std/utils.win.y"; #endif
 #if LINUX include "std/utils.linux.y"; #endif
+fn writestr(str: *char)  
+{
+    let len = strlen(str);
+    writestr(str, len);
+}
 fn writenum(x: i32)
 {
     if x == 0
     {
-        writechar('0');
+        writestr("0", 1);
         ret;
     }
     let buff: *char = null;
+    let secondbuff: *char = null;
     asm 
     {
-        sub rsp, 64
+        sub rsp, 32
         mov [rbp - 16], rsp
+        sub rsp, 32
+        mov [rbp - 24], rsp
     }
+    let i: u64 = 0;
+    let index: u64 = 0;
+    let wasneg = false;
     if x < 0
     {
-        writechar('-');
         x = -x;
+        wasneg = true;
     }
-    let index: u64 = 0;
     while x > 0 
     {
         let rem = x % 10;
@@ -26,11 +36,20 @@ fn writenum(x: i32)
         index = index + 1;
         x = x / 10;
     }
-    while index > 0
+    if(wasneg)
     {
-        index = index - 1;
-        writechar(buff[index]);
+        buff[index] = '-';
+        index = index + 1;
     }
+    let len = index;
+    index = index - 1;
+    while index >= 0
+    {
+        secondbuff[i] = buff[index];
+        index = index - 1;
+        i = i + 1;
+    }
+    writestr(secondbuff, len);
 }
 fn pow(x: i32, pow:i32): i32
 {

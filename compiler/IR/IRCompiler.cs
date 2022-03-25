@@ -30,7 +30,8 @@ public class IRCompiler
             lines.Add($"{fn.NameInAsm}:");
             lines.Add("push rbp");
             lines.Add("mov rbp, rsp");
-            lines.Add($"sub rsp, {localsSize}");
+            if(localsSize > 0)
+                lines.Add($"sub rsp, {localsSize}");
             if(offset < 0)
             {
                 lines.Add("mov rax, rbp");
@@ -40,7 +41,7 @@ public class IRCompiler
                 lines.Add("sub rax, 8");
                 lines.Add("cmp rax, rsp");
                 lines.Add("jge .clear");
-                lines.Add("mov rax, 0");
+                lines.Add("mov eax, 0");
             }
         }
         foreach (var instr in instructions)
@@ -86,7 +87,7 @@ public class IRCompiler
                             {
                                 if (v.Type.Size > 8)
                                 {
-                                    lines.Add($"lea rax, [{v.ToAddress()} + {v.Type.Size - 8}]");
+                                    lines.Add($"lea rax, {v.ToAsm(v.Type.Size - 8)}");
                                     for (int i = 0; i < v.Type.Size; i += 8)
                                     {
                                         lines.Add($"push qword[rax]");
@@ -96,7 +97,7 @@ public class IRCompiler
                                 }
                                 else
                                 {
-                                    lines.Add($"push qword[{v.ToAddress()}]");
+                                    lines.Add($"push qword{v.ToAsm()}");
                                 }
                             }
                             else
@@ -114,12 +115,12 @@ public class IRCompiler
                                 for (int i = 0; i < fncall.Dest.Type.Size; i += 8)
                                 {
                                     lines.Add("pop rax");
-                                    lines.Add($"mov qword[{fncall.Dest.ToAddress()} + {i}], rax");
+                                    lines.Add($"mov qword{fncall.Dest.ToAsm(i)}, rax");
                                 }
                             }
                             else
                             {
-                                lines.Add($"mov qword[{fncall.Dest.ToAddress()}], rax");
+                                lines.Add($"mov qword{fncall.Dest.ToAsm()}, rax");
                                 foreach (var arg in fncall.Args)
                                     for (int i = 0; i < arg.Type.Size; i += 8)
                                         lines.Add("pop rax");
@@ -163,16 +164,23 @@ public class IRCompiler
                     };
                     if (size is not null)
                     {
-                        CompileSource(instr.First!, lines, size, reg);
-                        lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}"); ;
+                        if(instr.First is Constant<long> c)
+                        {
+                            lines.Add($"mov {size}{instr.Destination.ToAsm()}, {c.Value}");
+                        }
+                        else 
+                        {
+                            CompileSource(instr.First!, lines, size, reg);
+                            lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg}"); ;
+                        }
                     }
                     else
                     {
                         var fst = instr.First as Variable;
                         for (int i = 0; i < fst?.Type.Size; i += 8)
                         {
-                            lines.Add($"mov rax, qword[{fst.ToAddress()} + {i}]");
-                            lines.Add($"mov qword[{instr.Destination.ToAddress()} + {i}], rax");
+                            lines.Add($"mov rax, qword{fst.ToAsm(i)}");
+                            lines.Add($"mov qword{instr.Destination.ToAsm(i)}, rax");
                         }
                     }
                 }
@@ -205,12 +213,14 @@ public class IRCompiler
                         4 => ("dword", "ebx"),
                         8 => ("qword", "rbx"),
                     };
-                    lines.Add("mov rbx, 0");
+                    lines.Add("mov ebx, 0");
                     CompileSource(alignment, lines, size, reg);
                     var opp = op is Operation.Add ? "add" : "sub";
-                    lines.Add($"shl {reg}, {(int)Math.Log2(ptrType.Underlaying.Size)}");
+                    var log = (int)Math.Log2(ptrType.Underlaying.Size);
+                    if(log > 0) 
+                        lines.Add($"shl {reg}, {log}");
                     lines.Add($"{opp} rax, rbx");
-                    lines.Add($"mov qword[{instr.Destination.ToAddress()}], rax");
+                    lines.Add($"mov qword{instr.Destination.ToAsm()}, rax");
                 }
                 break;
             case Operation.Mod:
@@ -225,9 +235,9 @@ public class IRCompiler
                     };
                     CompileSource(instr.First, lines, size, reg1);
                     CompileSource(instr.Second, lines, size, reg2);
-                    lines.Add("mov rdx, 0");
+                    lines.Add("mov edx, 0");
                     lines.Add($"idiv {reg2}");
-                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {(instr.Op is Operation.Mod ? remainder : reg1)}");
+                    lines.Add($"mov {size}{instr.Destination.ToAsm()}, {(instr.Op is Operation.Mod ? remainder : reg1)}");
                 }
                 break;
             case Operation.Add:
@@ -256,7 +266,7 @@ public class IRCompiler
                         _ => "fuck",
                     };
                     lines.Add($"{op} {reg1}, {(isSecconst ? instr.Second : reg2)}");
-                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg1}");
+                    lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg1}");
                 }
                 break;
             case Operation.LT:
@@ -287,7 +297,7 @@ public class IRCompiler
                     };
                     lines.Add($"cmp {reg1}, {reg2}");
                     lines.Add($"set{op} bl");
-                    lines.Add($"mov byte[{instr.Destination.ToAddress()}], bl");
+                    lines.Add($"mov byte{instr.Destination.ToAsm()}, bl");
                 }
                 break;
             case Operation.Ret:
@@ -311,7 +321,7 @@ public class IRCompiler
                             var fst = instr.First as Variable;
                             for (int i = 0; i < fn.RetType.Size; i += 8)
                             {
-                                lines.Add($"mov rax, qword[{fst.ToAddress()} + {i}]");
+                                lines.Add($"mov rax, qword{fst.ToAsm(i)}");
                                 lines.Add($"mov qword[rbp + {resoffset + i}], rax");
                             }
                         }
@@ -325,8 +335,9 @@ public class IRCompiler
                 {
                     if (instr.First is Variable v)
                     {
-                        lines.Add($"lea rax, [{v.ToAddress()}]");
-                        lines.Add($"mov qword[{instr.Destination.ToAddress()}], rax");
+                        lines.Add($"lea rax, {v.ToAsm()}");
+                        //lines.Add($"sub rax, {v.Type.Size}");
+                        lines.Add($"mov qword{instr.Destination.ToAsm()}, rax");
                     }
                 }
                 break;
@@ -344,16 +355,16 @@ public class IRCompiler
                     if (size is not null)
                     {
                         CompileSource(instr.First, lines, size, reg);
-                        lines.Add($"mov rbx, qword[{instr.Destination.ToAddress()}]");
+                        lines.Add($"mov rbx, qword{instr.Destination.ToAsm()}");
                         lines.Add($"mov {size}[rbx], {reg}");
                     }
                     else
                     {
                         var fst = instr.First as Variable;
-                        lines.Add($"mov rbx, qword[{instr.Destination.ToAddress()}]");
+                        lines.Add($"mov rbx, qword{instr.Destination.ToAsm()}");
                         for (int i = 0; i < undersize; i += 8)
                         {
-                            lines.Add($"mov rax, qword[{fst.ToAddress()} + {i}]");
+                            lines.Add($"mov rax, qword{fst.ToAsm(i)}");
                             lines.Add($"mov qword[rbx + {i}], rax");
                             lines.Add($"add rbx, 8");
                         }
@@ -373,20 +384,33 @@ public class IRCompiler
                     if (size is not null)
                     {
                         var s = instr.First as Variable;
-                        lines.Add($"mov rbx, qword[{s.ToAddress()}]");
+                        lines.Add($"mov rbx, qword{s.ToAsm()}");
                         lines.Add($"mov {reg}, {size}[rbx]");
-                        lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}");
+                        lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg}");
                     }
                     else
                     {
                         var fst = instr.First as Variable;
-                        lines.Add($"mov rax, qword[{fst.ToAddress()}]");
+                        lines.Add($"mov rax, qword{fst.ToAsm()}");
                         for (int i = 0; i < instr.Destination.Type.Size; i += 8)
                         {
                             lines.Add($"mov rbx, qword[rax + {i}]");
-                            lines.Add($"mov qword[{instr.Destination.ToAddress()} + {i}], rbx");
+                            lines.Add($"mov qword{instr.Destination.ToAsm(i)}, rbx");
                         }
                     }
+                }
+                break;
+            case Operation.Inc:
+            case Operation.Dec:
+                {
+                    var size = instr.Destination.Type.Size switch
+                    {
+                        1 => "byte",
+                        2 => "word",
+                        4 => "dword",
+                        _ => "qword",
+                    };
+                    lines.Add($"{(instr.Op is Operation.Inc ? "inc" : "dec")} {size}{instr.Destination.ToAsm()}");
                 }
                 break;
             case Operation.Neg:
@@ -398,9 +422,16 @@ public class IRCompiler
                         4 => ("dword", "eax"),
                         _ => ("qword", "rax"),
                     };
-                    CompileSource(instr.First, lines, size, reg);
-                    lines.Add($"neg {reg}");
-                    lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}");
+                    if(instr.First is Variable fst && instr.Destination.Name == fst.Name)
+                    {
+                        lines.Add($"neg {size}{fst.ToAsm()}");
+                    }
+                    else 
+                    {
+                        CompileSource(instr.First, lines, size, reg);
+                        lines.Add($"neg {reg}");
+                        lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg}");
+                    }
                 }
                 break;
             case Operation.Index:
@@ -420,18 +451,18 @@ public class IRCompiler
                         CompileSource(instr.Second, lines, "qword", "rbx");
                     
                         lines.Add($"mov {reg}, {size}[rax + rbx * {underlayingSize}]");
-                        lines.Add($"mov {size}[{instr.Destination.ToAddress()}], {reg}");
+                        lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg}");
                     }
                     else
                     {
                         CompileSource(instr.First, lines, "qword", "rax");
                         CompileSource(instr.Second, lines, "qword", "rbx");
-                        lines.Add($"imul rbx, {underlayingSize}");
+                        lines.Add($"shl rbx, {(int)Math.Log2(underlayingSize.Value)}");
                         lines.Add($"lea rax, [rax + rbx]");
                         for (int i = 0; i < underlayingSize; i += 8)
                         {
                             lines.Add($"mov rbx, qword[rax]");
-                            lines.Add($"mov qword[{instr.Destination.ToAddress()} + {i}], rbx");
+                            lines.Add($"mov qword{instr.Destination.ToAsm(i)}, rbx");
                             lines.Add($"add rax, 8");
                         }
                     }
@@ -443,12 +474,12 @@ public class IRCompiler
     {
         if (src is Variable v)
         {
-            lines.Add($"mov {reg}, {size}[{v.ToAddress()}]");
+            lines.Add($"mov {reg}, {size}{v.ToAsm()}");
         }
         else
         {
             if(reg.StartsWith("r") && src is Constant<long> c && c.Value < uint.MaxValue)
-                lines.Add($"mov e{reg[1..]}, {c.Value}; opt");
+                lines.Add($"mov e{reg[1..]}, {c.Value}");
             else
                 lines.Add($"mov {reg}, {src}");
         }
