@@ -930,7 +930,20 @@ public static class Compiler
             "||" => Operation.OR,
             _ => throw new(bin.Op)
         };
-        instructions.Add(new Instruction(op, src1, src2, res));
+        if(op is Operation.OR or Operation.AND)
+        {
+            var ifstart = fctx.NewLabel();
+            var elsestart = fctx.NewLabel();
+            var end = fctx.NewLabel();
+            CompileLazyBoolean(bin, ifstart, elsestart, ref fctx, ref ctx, instructions);
+            instructions.Add(ifstart);
+            instructions.Add(new Instruction(Operation.Equals, new Constant<bool>(true, ctx.Bool), null, res));
+            instructions.Add(elsestart);
+        }
+        else 
+        {
+            instructions.Add(new Instruction(op, src1, src2, res));
+        }
         return res;
     }
 
