@@ -415,11 +415,41 @@ public static class Parser
     }
     private static Expression BooleanOr(ref Context ctx)
     {
-        var first = Boolean(ref ctx);
+        var first = BinaryAnd(ref ctx);
         if (ctx.MatchOp("||", out _))
         {
             var snd = BooleanOr(ref ctx);
             return new BinaryExpression(first, snd, "||");
+        }
+        return first;
+    }
+    private static Expression BinaryAnd(ref Context ctx)
+    {
+        var first = BinaryXor(ref ctx);
+        if(ctx.MatchOp("&", out _))
+        {
+            var snd = BinaryAnd(ref ctx);
+            return new BinaryExpression(first, snd, "&");
+        }
+        return first;
+    }
+    private static Expression BinaryXor(ref Context ctx)
+    {
+        var first = BinaryOr(ref ctx);
+        if(ctx.MatchOp("^", out _))
+        {
+            var snd = BinaryXor(ref ctx);
+            return new BinaryExpression(first, snd, "^");
+        }
+        return first;
+    }
+    private static Expression BinaryOr(ref Context ctx)
+    {
+        var first = Boolean(ref ctx);
+        if(ctx.MatchOp("|", out _))
+        {
+            var snd = BinaryOr(ref ctx);
+            return new BinaryExpression(first, snd, "|");
         }
         return first;
     }
@@ -610,7 +640,7 @@ public static class Parser
         var value = token.Value;
         for (int i = 2 /* skip '0b' */; i < value.Length; i++)
         {
-            if (value[i] is not '1' or '0')
+            if (value[i] != '0' && value[i] != '1')
             {
                 ctx.Errors.Add(new Error($"Binary integer cannot contain {value[i]}", token.File, new Position { Line = pos.Line, Column = pos.Column + i }));
                 return new IntegerExpression(0, pos, token.File);

@@ -245,6 +245,9 @@ public class IRCompiler
             case Operation.Mul:
             case Operation.Shl:
             case Operation.Shr:
+            case Operation.BINAND:
+            case Operation.BINOR:
+            case Operation.XOR:
                 {
                     var (size, reg1, reg2) = instr.Destination.Type.Size switch
                     {
@@ -263,6 +266,9 @@ public class IRCompiler
                         Operation.Mul => "imul",
                         Operation.Shl => "shl",
                         Operation.Shr => "shr",
+                        Operation.BINAND => "and",
+                        Operation.BINOR => "or",
+                        Operation.XOR => "xor",
                         _ => "fuck",
                     };
                     lines.Add($"{op} {reg1}, {(isSecconst ? instr.Second : reg2)}");

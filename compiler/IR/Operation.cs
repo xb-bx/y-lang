@@ -28,6 +28,9 @@ public enum Operation
     Ret,
     OR,
     AND,
+    BINAND,
+    BINOR,
+    XOR,
 }
 
 

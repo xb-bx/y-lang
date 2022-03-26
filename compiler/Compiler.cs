@@ -928,6 +928,9 @@ public static class Compiler
             "!=" => Operation.NEQ,
             "&&" => Operation.AND,
             "||" => Operation.OR,
+            "&" => Operation.BINAND,
+            "|" => Operation.BINOR,
+            "^" => Operation.XOR,
             _ => throw new(bin.Op)
         };
         if(op is Operation.OR or Operation.AND)
