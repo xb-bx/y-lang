@@ -45,8 +45,12 @@ public static class Compiler
         public TypeInfo Char = null!;
         public TypeInfo Bool = null!;
     }
-    public static List<Error> Compile(List<Statement> statements, string output, Target target, bool optimize = false)
+    public static List<Error> Compile(List<Statement> statements, string output, CompilerSettings settings)
     {
+        if(settings.DumpIR is not null && !settings.DumpIR.Exists)
+        {
+            settings.DumpIR.Create();
+        }
         var ctx = new Context();
         AddDefaultTypes(ref ctx);
         var fns = statements.OfType<FnDefinitionStatement>().ToList();
@@ -93,6 +97,17 @@ public static class Compiler
                 var f = CompileFn(ref ctx, fn); 
                 Console.WriteLine(string.Join('\n', f.Info.Compiled));
                 compiledfns.Add((f.Variables, f.Info));
+                if(settings.DumpIR is not null)
+                {
+                    var sb = new StringBuilder();
+                    sb.AppendLine("Variables: ");
+                    foreach(var variable in f.Variables)
+                        sb.AppendLine(variable.ToString());
+                    sb.AppendLine("-------- BODY ---------");
+                    foreach(var instr in f.Info.Compiled)
+                        sb.AppendLine(instr.ToString());
+                    File.WriteAllText(Path.Combine(settings.DumpIR.FullName, $"{f.Info.NameInAsm}.ir"), sb.ToString());
+                } 
             }
         }
         foreach (var (vars, fn) in compiledfns)
@@ -102,13 +117,13 @@ public static class Compiler
             var fctx = new FunctionContext();
             fctx.Variables = vars;
             fctx.Info = fn;
-            if (optimize && fn.Compiled is not null)
+            if (settings.Optimize && fn.Compiled is not null)
                 Optimize(fn.Compiled);
             res.AddRange(IRCompiler.Compile(fn.Compiled, vars, fn));
         }
         var globalsinit = IRCompiler.Compile(instrs, new(), null!);
         var result = new StringBuilder();
-        if (target is Target.Windows)
+        if (settings.Target is Target.Windows)
         {
             result
                 .AppendLine("format PE64 CONSOLE")
@@ -167,7 +182,7 @@ public static class Compiler
         File.WriteAllText(output, result.ToString());
         return ctx.Errors;
     }
-    private static void Optimize(List<InstructionBase> instrs, int optimization = 4)
+    private static void Optimize(List<InstructionBase> instrs, int optimization = 8)
     {
         for (int opt = 0; opt < optimization; opt++)
             for (int i = 0; i < instrs.Count; i++)
@@ -613,7 +628,6 @@ public static class Compiler
         var memberexprtype = InferExpressionType(member.Expr, ref fctx, ref ctx, null, implicitref);
         FieldInfo field = null!;
 
-        var tempref = fctx.NewTemp(implicitref ? type : new PtrTypeInfo(type));
         var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
         if (memberexprtype is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo custom && custom.Fields.TryGetValue(member.MemberName, out field))
         {
@@ -626,6 +640,7 @@ public static class Compiler
         else if (((memberexprtype as CustomTypeInfo)?.Fields.TryGetValue(member.MemberName, out field) == true))
         {
 
+            var tempref = fctx.NewTemp(type);
             var res = fctx.NewTemp(type);
             var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
             instructions.Add(new Instruction(Operation.Ref, src, null, temp));

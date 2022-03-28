@@ -236,13 +236,27 @@ public class IRCompiler
                     CompileSource(instr.First, lines, size, reg1);
                     CompileSource(instr.Second, lines, size, reg2);
                     lines.Add("mov edx, 0");
-                    lines.Add($"idiv {reg2}");
+                    lines.Add($"{(!IsUnsignedNumberType(instr.Destination.Type) ? "i" : "")}div {reg2}");
                     lines.Add($"mov {size}{instr.Destination.ToAsm()}, {(instr.Op is Operation.Mod ? remainder : reg1)}");
+                }
+                break;
+            case Operation.Mul:
+                {    
+                    var (size, reg1, reg2) = instr.Destination.Type.Size switch
+                    {
+                        1 => ("byte", "al", "bl"),
+                        2 => ("word", "ax", "bx"),
+                        4 => ("dword", "eax", "ebx"),
+                        _ => ("qword", "rax", "rbx"),
+                    };
+                    CompileSource(instr.First, lines, size, reg1);
+                    CompileSource(instr.Second, lines, size, reg2);
+                    lines.Add($"{(!IsUnsignedNumberType(instr.Destination.Type) ? "i" : "")}mul {reg2}");
+                    lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg1}");
                 }
                 break;
             case Operation.Add:
             case Operation.Sub:
-            case Operation.Mul:
             case Operation.Shl:
             case Operation.Shr:
             case Operation.BINAND:
@@ -263,7 +277,6 @@ public class IRCompiler
                     {
                         Operation.Add => "add",
                         Operation.Sub => "sub",
-                        Operation.Mul => "imul",
                         Operation.Shl => "shl",
                         Operation.Shr => "shr",
                         Operation.BINAND => "and",
@@ -490,6 +503,8 @@ public class IRCompiler
                 lines.Add($"mov {reg}, {src}");
         }
     }
+    private static bool IsUnsignedNumberType(TypeInfo type)
+        => type.Name is "u8" or "u16" or "u32" or "u64";
 }
 
 
