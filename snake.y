@@ -6,8 +6,8 @@ struct Point
     y: i32;
     constructor(x: i32, y: i32) 
     {
-        *this.x = x;
-        *this.y = y;
+        this.x = x;
+        this.y = y;
     }
 }
 let map: *char = null;
@@ -41,13 +41,8 @@ fn main()
 {
     dir.x = 1;
     dir.y = 0;
-    asm 
-    {
-        sub rsp, 2048
-        mov qword[map], rsp; ptr to map
-        sub rsp, 2048
-        mov qword[snake], rsp; ptr to snake
-    }
+    map = cast(alloc(2048), *char);
+    snake = cast(alloc(2048), *Point);
     asm 
     {
         invoke GetTickCount
@@ -73,7 +68,7 @@ fn placefruit()
     let y = nextrnd() % sizey;
     if x <= 0 
         x = 1;
-    else if x >= (sizex - 1)
+    else if x >= sizex - 1
         x = sizex - 2;
     if y <= 0
         y = 1;
@@ -125,8 +120,6 @@ fn movesnake()
             writenum(cast(snakelen - 2, i32));
             asm 
             {
-                mov rsp, rbp
-                pop rbp
                 invoke ExitProcess, 0
             }
         }
