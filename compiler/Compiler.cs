@@ -241,7 +241,8 @@ public static class Compiler
                 }
             }
             var ctors = new List<FnInfo>();
-            var struc = new CustomTypeInfo(structt.Name, fields, ctors);
+            var methods = new List<FnInfo>();
+            var struc = new CustomTypeInfo(structt.Name, fields, ctors, methods);
             ctx.Types.Add(structt.Name, struc);
             foreach (var ctor in structt.Constructors)
             {
@@ -262,6 +263,32 @@ public static class Compiler
                 var fn = new FnInfo(name, @params, ctx.Void, ctor.Body);
                 ctx.Fns.Add(fn);
                 ctors.Add(fn);
+            }
+            foreach(var fn in structt.Methods)
+            { 
+                var @params = new List<(string name, TypeInfo type)>();
+                @params.Add(("this", new PtrTypeInfo(struc)));
+                foreach(var param in fn.Params)
+                {
+                    if(ctx.GetTypeInfo(param.Type) is TypeInfo type)
+                    {
+                        @params.Add((param.Name, type));
+                    }
+                    else 
+                    {
+                        ctx.Errors.Add(new Error($"Unknown type {param.Type}", param.File, param.Type.Pos));
+                    }
+                }
+                var name = $"{structt.Name}.{fn.Name}";
+                TypeInfo returnType = fn.RetType is null ? ctx.Void : ctx.GetTypeInfo(fn.RetType)!;
+                if(returnType is null)
+                {
+                    ctx.Errors.Add(new Error($"Unknown type {fn.RetType}", fn.RetType.File, fn.RetType.Pos));
+                    returnType = ctx.Void;
+                }
+                var info = new FnInfo(name, @params, returnType, fn.Body);
+                ctx.Fns.Add(info);
+                methods.Add(info);
             }
         }
     }
@@ -677,9 +704,48 @@ public static class Compiler
             NewObjExpression newobj => CompileNew(newobj, ref fctx, ref ctx, instructions),
             MemberAccessExpression member => CompileMember(member, ref fctx, ref ctx, instructions),
             CharExpression c => targetType?.Equals(ctx.U8) == true ? new Constant<long>((byte)c.Value, ctx.U8) : new Constant<long>((byte)c.Value, ctx.Char),
+            MethodCallExpression method => CompileMethodCall(method, ref fctx, ref ctx, instructions),
         };
     }
-
+    private static Source CompileMethodCall(MethodCallExpression method, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+        var type = InferExpressionType(method.Expr, ref fctx, ref ctx, null); 
+        if(type is CustomTypeInfo cust && TryGetFunction($"{cust.Name}.{method.Name}", method.Args, ref ctx, ref fctx, true) is FnInfo fn)
+        {
+            fn.WasUsed = true;
+            var thisptr = CompileRefOf(method.Expr, ref fctx, ref ctx, instructions);
+            var args = new List<Source>();
+            args.Add(thisptr);
+            foreach(var (arg, targetType) in method.Args.Zip(fn.Params.Skip(1).Select(x => x.type)))
+            {
+                args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
+            }
+            var result = fctx.NewTemp(fn.RetType);
+            instructions.Add(new FnCallInstruction(fn, args, result));
+            return result;
+        }
+        else if(type is PtrTypeInfo ptr 
+                && ptr.Underlaying is CustomTypeInfo custptr 
+                && TryGetFunction($"{custptr.Name}.{method.Name}", method.Args, ref ctx, ref fctx, true) is FnInfo fninfo)
+        {
+            fninfo.WasUsed = true;
+            var thisptr = CompileExpression(method.Expr, ref fctx, ref ctx, instructions, type);
+            var args = new List<Source>();
+            args.Add(thisptr);
+            foreach(var (arg, targetType) in method.Args.Zip(fninfo.Params.Skip(1).Select(x => x.type)))
+            {
+                args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
+            }
+            var result = fctx.NewTemp(fninfo.RetType);
+            instructions.Add(new FnCallInstruction(fninfo, args, result));
+            return result;
+        }
+        else 
+        {
+            ctx.Errors.Add(new Error($"Type {type} does not contains method {method.Name}", method.File, method.Pos));
+            return new Constant<long>(0, ctx.I32);
+        }
+    }
     private static Source CompileMember(MemberAccessExpression member, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
         var type = InferExpressionType(member, ref fctx, ref ctx, null);
@@ -815,44 +881,8 @@ public static class Compiler
 
     private static Source CompileFnCall(FunctionCallExpression fncall, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instrs)
     {
-        var types = new List<TypeInfo>();
-        foreach (var arg in fncall.Args)
+        if (TryGetFunction(fncall.Name, fncall.Args, ref ctx, ref fctx) is FnInfo fn)
         {
-            types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
-        }
-        var fn = ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params.Select(x => x.type)));
-        var prev = ctx.Errors.Count;
-        if (fn is null)
-        {
-            var posibles = ctx.Fns.Where(x => x.Name == fncall.Name && x.Params.Count == fncall.Args.Count).ToList();
-            if (posibles.Count != 0)
-            {
-                foreach (var posible in posibles)
-                {
-                    types.Clear();
-                    foreach (var (arg, type) in fncall.Args.Zip(posible.Params))
-                    {
-                        types.Add(InferExpressionType(arg, ref fctx, ref ctx, type.type));
-                    }
-                    if (types.SequenceEqual(posible.Params.Select(x => x.type)))
-                    {
-                        fn = posible;
-                        break;
-                    }
-                }
-            }
-        }
-        if (fn is not null)
-        {
-            if (prev != ctx.Errors.Count)
-            {
-                var x = ctx.Errors.Count - prev;
-                while (x > 0)
-                {
-                    ctx.Errors.RemoveAt(ctx.Errors.Count - 1);
-                    x--;
-                }
-            }
             fn.WasUsed = true;
             var res = fctx.NewTemp(fn.RetType);
             var args = new List<Source>();
@@ -1134,7 +1164,22 @@ public static class Compiler
                         return ctx.Void;
                     }
                 }
-                break;
+            case MethodCallExpression method:
+                {
+                    var type = InferExpressionType(method.Expr, ref fctx, ref ctx, null);
+                    CustomTypeInfo? cust = null;
+                    if(
+                        ((cust = type as CustomTypeInfo) is not null || (cust = (type as PtrTypeInfo)?.Underlaying as CustomTypeInfo) is not null) 
+                        && TryGetFunction($"{cust.Name}.{method.Name}", method.Args, ref ctx, ref fctx, true) is FnInfo fn)
+                    {
+                            return fn.RetType;
+                    }
+                    else 
+                    {
+                        ctx.Errors.Add(new Error($"Type {type} does not contains method {method.Name}", method.File, method.Pos));
+                        return ctx.Void;
+                    }
+                }
             case NewObjExpression newObj:
                 {
                     var type = ctx.GetTypeInfo(newObj.Type);
@@ -1232,7 +1277,7 @@ public static class Compiler
                     {
                         types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
                     }
-                    if (ctx.Fns.FirstOrDefault(x => x.Name == fncall.Name && types.SequenceEqual(x.Params.Select(x => x.type))) is FnInfo fn)
+                    if (TryGetFunction(fncall.Name, fncall.Args, ref ctx, ref fctx) is FnInfo fn)
                     {
                         return fn.RetType;
                     }
@@ -1246,13 +1291,49 @@ public static class Compiler
         }
     }
 
+    private static FnInfo? TryGetFunction(string name, List<Expression> args, ref Context ctx, ref FunctionContext fctx, bool isInstance = false)
+    {
+        var types = new List<TypeInfo>();
+        foreach (var arg in args)
+        {
+            types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
+        }
+        var fn = ctx.Fns.FirstOrDefault(x => x.Name == name && types.SequenceEqual(x.Params.Skip(isInstance ? 1 : 0).Select(x => x.type)));
+        var prev = ctx.Errors.Count;
+        if (fn is null)
+        {
+            var posibles = ctx.Fns.Where(x => x.Name == name && x.Params.Count == args.Count).ToList();
+            if (posibles.Count != 0)
+            {
+                foreach (var posible in posibles)
+                {
+                    types.Clear();
+                    foreach (var (arg, type) in args.Zip(posible.Params))
+                    {
+                        types.Add(InferExpressionType(arg, ref fctx, ref ctx, type.type));
+                    }
+                    if (types.SequenceEqual(posible.Params.Skip(isInstance ? 1 : 0).Select(x => x.type)))
+                    {
+                        fn = posible;
+                        break;
+                    }
+                }
+            }
+        }
+        while(prev < ctx.Errors.Count)
+        {
+            ctx.Errors.RemoveAt(ctx.Errors.Count - 1);
+        }
+        return fn;
+    }
+
     private static TypeInfo InferNull(ref Context ctx, TypeInfo? target)
     {
         if (target is PtrTypeInfo ptr)
             return ptr;
         return new PtrTypeInfo(ctx.Void);
     }
-
+    
     private static bool CheckAllCodePathReturns(Statement stat)
     {
         return stat switch

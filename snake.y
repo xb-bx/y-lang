@@ -9,6 +9,10 @@ struct Point
         this.x = x;
         this.y = y;
     }
+    fn equals(other: Point): bool 
+    {
+        ret this.x == other.x && this.y == other.y;
+    }
 }
 let map: *char = null;
 let snake: *Point = null;
@@ -87,15 +91,14 @@ fn numtohex(num: u8): char
 fn movesnake() 
 {
     let i = snakelen - 1;
-    let head = new Point(0, 0);
-    head.x = snake[0].x + dir.x; head.y = snake[0].y + dir.y;
+    let head = new Point(snake[0].x + dir.x, snake[0].y + dir.y);
     
     if head.x == sizex - 1 head.x = 1;
     if head.x == 0 head.x = sizex - 2;
     if head.y == sizey- 1 head.y = 1;
     if head.y == 0 head.y = sizey - 2;
     
-    if head.x == fruit.x && head.y == fruit.y
+    if head.equals(fruit)
     {
         let ind = snakelen;
         snake[ind] = snake[0];
@@ -112,8 +115,7 @@ fn movesnake()
     i = 1;
     while i < snakelen 
     {
-        let tail = snake[i];
-        if tail.x == head.x && tail.y == head.y
+        if snake[i].equals(head)
         {
             clear();
             writestr("Your score is: ", 15);

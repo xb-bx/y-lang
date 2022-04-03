@@ -17,23 +17,6 @@ public static class Parser
             if (Pos < Tokens.Count)
             {
                 token = Tokens[Pos++];
-                if (token.Type == TokenType.Preprocessor)
-                {
-                    if (token.Value == "if")
-                    {
-                        var symbol = Tokens[Pos].Value;
-                        if (!Symbols.Contains(symbol))
-                        {
-                            var tok = Tokens[++Pos];
-                            while (tok.Type != TokenType.Preprocessor && tok.Value != "endif")
-                            {
-                                tok = Tokens[++Pos];
-                            }
-                            Pos++;
-                        }
-                    }
-                    token = Tokens[Pos++];
-                }
                 var res = match.Match(token);
                 if (!res)
                     Pos--;
@@ -164,9 +147,10 @@ public static class Parser
         ctx.ForceMatch(MatchGroup.LBRC);
         var fields = new List<FieldDefinitionStatement>();
         var constructors = new List<ConstructorDefinitionStatement>();
+        var functions = new List<FnDefinitionStatement>();
         while (!ctx.Match(MatchGroup.RBRC, out _))
         {
-            var token = ctx.ForceMatch(MatchGroup.MatchKeyword("constructor").Or(TokenType.Id));
+            var token = ctx.ForceMatch(MatchGroup.MatchKeyword("constructor").Or(TokenType.Id).OrKeyword("fn"));
             Console.WriteLine($"STRUCT: {token}");
             switch (token)
             {
@@ -177,10 +161,13 @@ public static class Parser
                     ctx.Pos--;
                     fields.Add(Field(ref ctx));
                     break;
+                case { Type: TokenType.Keyword, Value: "fn", Pos: var position }:
+                    functions.Add(ParseFunction(ref ctx, position));
+                    break;
             }
         }
 
-        return new StructDefinitionStatement(name.Value, fields, constructors, name.Pos, name.File);
+        return new StructDefinitionStatement(name.Value, fields, constructors, functions, name.Pos, name.File);
     }
     private static ConstructorDefinitionStatement Constructor(ref Context ctx)
     {
