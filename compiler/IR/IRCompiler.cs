@@ -41,7 +41,6 @@ public class IRCompiler
                 lines.Add("sub rax, 8");
                 lines.Add("cmp rax, rsp");
                 lines.Add("jge .clear");
-                lines.Add("mov eax, 0");
             }
         }
         foreach (var instr in instructions)
@@ -109,9 +108,9 @@ public class IRCompiler
                         {
                             if (fncall.Dest.Type.Size > 8)
                             {
-                                foreach (var arg in fncall.Args)
-                                    for (int i = 0; i < arg.Type.Size; i += 8)
-                                        lines.Add("pop rax");
+                                if(fncall.Args.Count > 0)
+                                    lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
+                            
                                 for (int i = 0; i < fncall.Dest.Type.Size; i += 8)
                                 {
                                     lines.Add("pop rax");
@@ -121,16 +120,14 @@ public class IRCompiler
                             else
                             {
                                 lines.Add($"mov qword{fncall.Dest.ToAsm()}, rax");
-                                foreach (var arg in fncall.Args)
-                                    for (int i = 0; i < arg.Type.Size; i += 8)
-                                        lines.Add("pop rax");
+                                if(fncall.Args.Count > 0)
+                                    lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
                             }
                         }
                         else
                         {
-                            foreach (var arg in fncall.Args)
-                                for (int i = 0; i < arg.Type.Size; i += 8)
-                                    lines.Add("pop rax");
+                            if(fncall.Args.Count > 0)
+                                lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
                             if (fncall.Fn.RetType.Size > 8)
                                 lines.Add($"add rsp, {fncall.Fn.RetType.Size}");
                         }
@@ -141,8 +138,7 @@ public class IRCompiler
         }
         if (fn?.RetType.Name == "void")
         {
-            lines.Add("mov rsp, rbp");
-            lines.Add("pop rbp");
+            lines.Add("leave");
             lines.Add("ret");
         }
         return lines;
@@ -213,7 +209,6 @@ public class IRCompiler
                         4 => ("dword", "ebx"),
                         8 => ("qword", "rbx"),
                     };
-                    lines.Add("mov ebx, 0");
                     CompileSource(alignment, lines, size, reg);
                     var opp = op is Operation.Add ? "add" : "sub";
                     var log = (int)Math.Log2(ptrType.Underlaying.Size);
@@ -345,8 +340,7 @@ public class IRCompiler
                             }
                         }
                     }
-                    lines.Add("mov rsp, rbp");
-                    lines.Add("pop rbp");
+                    lines.Add("leave");
                     lines.Add("ret");
                 }
                 break;
@@ -497,8 +491,19 @@ public class IRCompiler
         }
         else
         {
-            if(reg.StartsWith("r") && src is Constant<long> c && c.Value < uint.MaxValue)
-                lines.Add($"mov e{reg[1..]}, {c.Value}");
+            if(src is Constant<long> c)
+            {
+                if(reg.StartsWith("r") && c.Value < uint.MaxValue)
+                    if(c.Value == 0)
+                        lines.Add($"xor e{reg[1..]}, e{reg[1..]}");
+                    else
+                        lines.Add($"mov e{reg[1..]}, {c.Value}");
+                else if(c.Value == 0)
+                    lines.Add($"xor {reg}, {reg}");
+                else
+                    lines.Add($"mov {reg}, {src}");
+                    
+            }
             else
                 lines.Add($"mov {reg}, {src}");
         }
