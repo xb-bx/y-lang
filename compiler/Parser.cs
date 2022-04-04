@@ -121,6 +121,7 @@ public static class Parser
                                     {
                                         ctx.Included.Add(file.Value);
                                         var toks = Lexer.Tokenize(File.ReadAllText(file.Value), Path.GetFileName(file.Value), out var errs);
+                                        toks = Preprocess(toks, definedSymbols);
                                         ctx.Errors.AddRange(errs);
                                         ctx.ForceMatch(MatchGroup.Semicolon);
                                         ctx.Tokens.InsertRange(ctx.Pos, toks.Take(toks.Count - 1));
