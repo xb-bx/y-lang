@@ -15,7 +15,7 @@ public class FnInfo
     public FnInfo(string name, List<(string name, TypeInfo type)> @params, TypeInfo retType, Statement body)
     {
         (Name, Params, RetType, Body) = (name, @params, retType, body);
-        NameInAsm = Name + string.Join('_', @params.Select(x => x.type)).Replace("*", "");
+        NameInAsm = Name + string.Join('_', @params.Select(x => x.type)).Replace("*", "ptr");
     }
     public override string ToString()
         => $"{Name}({string.Join(", ", Params.Select(x => x.type))}): {RetType}";

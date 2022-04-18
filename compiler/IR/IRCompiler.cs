@@ -30,9 +30,9 @@ public class IRCompiler
             lines.Add($"{fn.NameInAsm}:");
             lines.Add("push rbp");
             lines.Add("mov rbp, rsp");
-            if(localsSize > 0)
+            if (localsSize > 0)
                 lines.Add($"sub rsp, {localsSize}");
-            if(offset < 0)
+            if (offset < 0)
             {
                 lines.Add("mov rax, rbp");
                 lines.Add("sub rax, 8");
@@ -108,9 +108,9 @@ public class IRCompiler
                         {
                             if (fncall.Dest.Type.Size > 8)
                             {
-                                if(fncall.Args.Count > 0)
+                                if (fncall.Args.Count > 0)
                                     lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
-                            
+
                                 for (int i = 0; i < fncall.Dest.Type.Size; i += 8)
                                 {
                                     lines.Add("pop rax");
@@ -120,13 +120,13 @@ public class IRCompiler
                             else
                             {
                                 lines.Add($"mov qword{fncall.Dest.ToAsm()}, rax");
-                                if(fncall.Args.Count > 0)
+                                if (fncall.Args.Count > 0)
                                     lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
                             }
                         }
                         else
                         {
-                            if(fncall.Args.Count > 0)
+                            if (fncall.Args.Count > 0)
                                 lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
                             if (fncall.Fn.RetType.Size > 8)
                                 lines.Add($"add rsp, {fncall.Fn.RetType.Size}");
@@ -160,11 +160,11 @@ public class IRCompiler
                     };
                     if (size is not null)
                     {
-                        if(instr.First is Constant<long> c)
+                        if (instr.First is Constant<long> c)
                         {
                             lines.Add($"mov {size}{instr.Destination.ToAsm()}, {c.Value}");
                         }
-                        else 
+                        else
                         {
                             CompileSource(instr.First!, lines, size, reg);
                             lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg}"); ;
@@ -212,7 +212,7 @@ public class IRCompiler
                     CompileSource(alignment, lines, size, reg);
                     var opp = op is Operation.Add ? "add" : "sub";
                     var log = (int)Math.Log2(ptrType.Underlaying.Size);
-                    if(log > 0) 
+                    if (log > 0)
                         lines.Add($"shl {reg}, {log}");
                     lines.Add($"{opp} rax, rbx");
                     lines.Add($"mov qword{instr.Destination.ToAsm()}, rax");
@@ -221,22 +221,33 @@ public class IRCompiler
             case Operation.Mod:
             case Operation.Div:
                 {
-                    var (size, reg1, reg2, remainder) = instr.Destination.Type.Size switch
+                    if (instr.Destination.Type.Size == 1)
                     {
-                        1 => ("byte", "al", "bl", "dl"),
-                        2 => ("word", "ax", "bx", "dx"),
-                        4 => ("dword", "eax", "ebx", "edx"),
-                        8 => ("qword", "rax", "rbx", "rdx"),
-                    };
-                    CompileSource(instr.First, lines, size, reg1);
-                    CompileSource(instr.Second, lines, size, reg2);
-                    lines.Add("mov edx, 0");
-                    lines.Add($"{(!IsUnsignedNumberType(instr.Destination.Type) ? "i" : "")}div {reg2}");
-                    lines.Add($"mov {size}{instr.Destination.ToAsm()}, {(instr.Op is Operation.Mod ? remainder : reg1)}");
+                        lines.Add("xor ax, ax");
+                        CompileSource(instr.First, lines, "byte", "al");
+                        CompileSource(instr.Second, lines, "byte", "bl");
+                        lines.Add($"{(IsUnsignedNumberType(instr.Destination.Type) ? "" : "i")}div bl");
+                        lines.Add($"mov byte{instr.Destination.ToAsm()}, {(instr.Op is Operation.Mod ? "ah": "al")}");
+                    }
+                    else
+                    {
+                        var (size, reg1, reg2, remainder) = instr.Destination.Type.Size switch
+                        {
+                            2 => ("word", "ax", "bx", "dx"),
+                            4 => ("dword", "eax", "ebx", "edx"),
+                            8 => ("qword", "rax", "rbx", "rdx"),
+                            _ => default,
+                        };
+                        CompileSource(instr.First, lines, size, reg1);
+                        CompileSource(instr.Second, lines, size, reg2);
+                        lines.Add("mov edx, 0");
+                        lines.Add($"{(!IsUnsignedNumberType(instr.Destination.Type) ? "i" : "")}div {reg2}");
+                        lines.Add($"mov {size}{instr.Destination.ToAsm()}, {(instr.Op is Operation.Mod ? remainder : reg1)}");
+                    }
                 }
                 break;
             case Operation.Mul:
-                {    
+                {
                     var (size, reg1, reg2) = instr.Destination.Type.Size switch
                     {
                         1 => ("byte", "al", "bl"),
@@ -379,7 +390,7 @@ public class IRCompiler
                         {
                             lines.Add($"mov rax, qword{fst.ToAsm(i)}");
                             lines.Add($"mov qword[rbx + {i}], rax");
-                            lines.Add($"add rbx, 8");
+                            lines.Add($"add rax, 8");
                         }
                     }
                 }
@@ -435,11 +446,11 @@ public class IRCompiler
                         4 => ("dword", "eax"),
                         _ => ("qword", "rax"),
                     };
-                    if(instr.First is Variable fst && instr.Destination.Name == fst.Name)
+                    if (instr.First is Variable fst && instr.Destination.Name == fst.Name)
                     {
                         lines.Add($"neg {size}{fst.ToAsm()}");
                     }
-                    else 
+                    else
                     {
                         CompileSource(instr.First, lines, size, reg);
                         lines.Add($"neg {reg}");
@@ -462,7 +473,7 @@ public class IRCompiler
                     {
                         CompileSource(instr.First, lines, "qword", "rax");
                         CompileSource(instr.Second, lines, "qword", "rbx");
-                    
+
                         lines.Add($"mov {reg}, {size}[rax + rbx * {underlayingSize}]");
                         lines.Add($"mov {size}{instr.Destination.ToAsm()}, {reg}");
                     }
@@ -491,18 +502,18 @@ public class IRCompiler
         }
         else
         {
-            if(src is Constant<long> c)
+            if (src is Constant<long> c)
             {
-                if(reg.StartsWith("r") && c.Value < uint.MaxValue)
-                    if(c.Value == 0)
+                if (reg.StartsWith("r") && c.Value < uint.MaxValue)
+                    if (c.Value == 0)
                         lines.Add($"xor e{reg[1..]}, e{reg[1..]}");
                     else
                         lines.Add($"mov e{reg[1..]}, {c.Value}");
-                else if(c.Value == 0)
+                else if (c.Value == 0)
                     lines.Add($"xor {reg}, {reg}");
                 else
                     lines.Add($"mov {reg}, {src}");
-                    
+
             }
             else
                 lines.Add($"mov {reg}, {src}");
