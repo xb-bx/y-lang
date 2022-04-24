@@ -50,3 +50,41 @@ fn clear()
     }
     writestr(str);
 }
+fn alloc(size: u64): *u8 
+{ 
+    asm 
+    {
+        mov eax, 9
+        xor edi, edi
+        mov rsi, qword[rbp + 16]
+        mov edx, 3
+        mov r10, 0x22
+        mov r8, -1
+        mov r9, 0
+        syscall
+        leave 
+        ret
+    }
+    ret null;
+}
+fn free(ptr: *u8, size: u64) 
+{
+    asm 
+    {
+        mov eax, 11
+        mov rdi, qword[rbp + 16]
+        mov rsi, qword[rbp + 24]
+        syscall
+        leave
+        ret
+    }
+}
+fn exit()
+{
+    asm 
+    {
+        mov eax, 60
+        xor rdi, rdi
+        syscall
+    }
+}

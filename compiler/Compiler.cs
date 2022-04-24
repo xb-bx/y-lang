@@ -188,6 +188,7 @@ public static class Compiler
             if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
             {
                 result.AppendLine("segment readable writable");
+                GenerateTypeInfos(ref ctx, result);
                 foreach (var global in ctx.Globals)
                     result.AppendLine($"{global.Name} dq {(global.Type.Size > 8 ? string.Join(", ", Enumerable.Repeat("0", global.Type.Size / 8)) : "0")}");
                 foreach (var (s, str) in ctx.StringConstants)

@@ -78,9 +78,18 @@ struct VariadicChunks
             newdata[i] = this.chunks[i];
             i = i + 1;
         }
-        free(cast(this.chunks, *u8));
+        this.free_chunks();
         this.chunks = newdata;
         this.size = newsize;
+    }
+    fn free_chunks()
+    {
+        #if LINUX
+        free(cast(this.chunks, *u8), this.size * 8);
+        #endif
+        #if WINDOWS
+        free(cast(this.chunks, *u8));
+        #endif
     }
 }
 struct FreePlaces 
@@ -109,7 +118,7 @@ struct FreePlaces
             newplaces[i] = this.places[i];
             i = i + 1;
         }
-        free(cast(this.places, *u8));
+        this.free_places();
         this.places = newplaces;
         this.size = newsize;
     }
@@ -117,12 +126,20 @@ struct FreePlaces
     {
         if this.count == 0 
         {
-            
-            asm { invoke ExitProcess, 0 }
+            exit();    
         }
         this.count = this.count - 1;
         let res = this.places[this.count];
         ret res;
+    }
+    fn free_places()
+    {
+        #if LINUX
+        free(cast(this.places, *u8), this.size * 8);
+        #endif
+        #if WINDOWS
+        free(cast(this.places, *u8));
+        #endif
     }
 }
 
@@ -173,9 +190,18 @@ struct Chunks
             newchunks[i] = this.chunks[i];
             i = i + 1;
         }
-        free(cast(this.chunks, *u8));
+        this.free_chunks();
         this.chunks = newchunks;
         this.size = newsize;
+    }
+    fn free_chunks()
+    {
+        #if LINUX
+        free(cast(this.chunks, *u8), this.size * 8);
+        #endif
+        #if WINDOWS
+        free(cast(this.chunks, *u8));
+        #endif
     }
 }
 fn next_pow_of2(num: u64): u64

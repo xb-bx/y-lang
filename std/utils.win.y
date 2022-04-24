@@ -24,7 +24,10 @@ fn sleep(ms: i32)
         invoke Sleep, dword[rbp + 16]
     }
 }
-
+fn exit() 
+{
+    asm { invoke ExitProcess, 0 } 
+}
 fn clear()  
 {
     enableVT();
