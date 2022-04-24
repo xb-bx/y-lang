@@ -1,37 +1,37 @@
 include "std/gc.y";
 include "std/utils.y";
 include "std/StringBuilder.y";
+struct Size 
+{
+    x: u64;
+    y: u64;
+}
 struct Game 
 {
     current: *u8;
     next: *u8;
-    constructor()
+    size: Size;
+    constructor(size: Size)
     {
-        this.current = new_array(100);
-        this.next = new_array(100);
-        let i: u64 = 0;
-        while i < 100 
-        {
-            this.current[i] = 0;
-            this.next[i] = 0;
-            i = i + 1;
-        }
+        this.size = size;
+        this.current = new_array(size.x * size.y, typeof(u8)).data;
+        this.next = new_array(size.x * size.y, typeof(u8)).data;
     }
     fn fill()
     {
         let y:u64 = 0;
-        while y < 10 
+        while y < this.size.y 
         {
             let x:u64 = 0;
-            while x < 10 
+            while x < this.size.x 
             {
                 if nextrnd() % 2 == 1 
                 {
-                    this.current[y * 10 + x] = 1;
+                    this.current[y * this.size.x + x] = 1;
                 }
                 else 
                 {
-                    this.current[y * 10 + x] = 0;
+                    this.current[y * this.size.x + x] = 0;
                 }
                 x = x + 1;
             }
@@ -42,13 +42,13 @@ struct Game
     {
         let builder = new StringBuilder();
         let y: u64 = 0;
-        while y < 10 
+        while y < this.size.y 
         {
             let x: u64 = 0;
-            while x < 10 
+            while x < this.size.x
             {
                 if this.get(x, y) == 1 builder.append('#');
-                else builder.append(' ');
+                else builder.append('.');
                 x = x + 1;
             }
             builder.endl();
@@ -59,21 +59,21 @@ struct Game
     fn step()
     {
         let y: u64 = 0;
-        while y < 10 
+        while y < this.size.y 
         {
             let x: u64 = 0;
-            while x < 10 
+            while x < this.size.x
             {
                 let ngs = this.count_neighbours(x, y);
                 if this.get(x, y) == 0 
                 {
-                    if ngs == 3 this.next[y * 10 + x] = 1;
-                    else this.next[y * 10 + x] = 0;
+                    if ngs == 3 this.next[y * this.size.x + x] = 1;
+                    else this.next[y * this.size.x + x] = 0;
                 }
                 else 
                 {
-                    if ngs == 2 || ngs == 3 this.next[y * 10 + x] = 1;
-                    else this.next[y * 10 + x] = 0;
+                    if ngs == 2 || ngs == 3 this.next[y * this.size.x + x] = 1;
+                    else this.next[y * this.size.x + x] = 0;
                 }
                 x = x + 1;
             }
@@ -98,9 +98,12 @@ struct Game
     }
     fn get(x: u64, y: u64): u8 
     {
-        if x >= 0 && x < 10 && y >= 0 && y < 10
-            ret this.current[y * 10 + x];
-        ret 0;
+        if x < 0 x = this.size.x - x;
+        else if x >= this.size.x x = x - this.size.x;
+        if y < 0 y = this.size.y - y;
+        else if y >= this.size.y y = y - this.size.y;
+        
+        ret this.current[y * this.size.x + x];
     }
 }
 let seed = 0;
@@ -125,13 +128,6 @@ fn nextrnd() : i32
     }
     ret rnd;
 }
-fn create_game(): *Game 
-{
-    let game = cast(new_obj(32), *Game);
-    game.current = new_array(100);
-    game.next = new_array(100);
-    ret game;
-}
 fn main()
 {
     set_start();
@@ -140,7 +136,10 @@ fn main()
         invoke GetTickCount
         mov qword[seed], rax
     }
-    let game = create_game();
+    let size = new Size();
+    size.x = 30;
+    size.y = 20;
+    let game = new Game(size);
     game.fill();
     game.draw();
     while true 
@@ -150,10 +149,6 @@ fn main()
         clear();
         game.draw();
     }
-}
-fn u64(n: i32): u64 
-{
-    ret cast(n, u64);
 }
 fn read(): char 
 {

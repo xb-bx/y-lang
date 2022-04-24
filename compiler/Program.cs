@@ -42,8 +42,8 @@ public class Program
             out var errors,
             new HashSet<string>(define ?? Array.Empty<string>()) { t.ToString().ToUpper() }
         );
-        foreach (var statement in statements)
-            Console.WriteLine(statement.GetType());
+        //Console.WriteLine(Formater.Format(statements));
+        
         var cerrors = Compiler.Compile(
             statements,
             Path.ChangeExtension(source.FullName, ".asm"),

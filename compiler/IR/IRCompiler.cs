@@ -8,13 +8,15 @@ public class IRCompiler
         int resoffset = 0;
         if (fn is not null)
         {
+            int offset = 16;
             foreach (var (arg, i) in vars.Where(x => x.IsArg).Select((x, i) => (x, i)))
             {
-                arg.Offset = (arg.Type.Size < 8 ? 8 : arg.Type.Size) * i + 16;
+                arg.Offset = offset; 
+                offset += (arg.Type.Size < 8 ? 8 : arg.Type.Size);
             }
             var lastarg = vars.Where(x => x.IsArg).LastOrDefault();
             resoffset = lastarg?.Offset + lastarg?.Type.Size ?? 16;
-            int offset = 0;
+            offset = 0;
             foreach (var (v, i) in vars.Where(x => !x.IsArg).Select((x, i) => (x, i)))
             {
                 offset = v.Type.Size < 8 ? offset - 8 : offset - v.Type.Size;
@@ -390,7 +392,6 @@ public class IRCompiler
                         {
                             lines.Add($"mov rax, qword{fst.ToAsm(i)}");
                             lines.Add($"mov qword[rbx + {i}], rax");
-                            lines.Add($"add rax, 8");
                         }
                     }
                 }

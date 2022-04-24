@@ -24,6 +24,7 @@ public static class Lexer
         "null",
         "include",
         "constructor",
+        "typeof",
     };
     private static readonly HashSet<char> brackets = new()
     {

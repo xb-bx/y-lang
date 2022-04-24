@@ -515,6 +515,11 @@ public static class Parser
         var args = CommanSeperated(ref ctx, MatchGroup.RP);
         return new NewObjExpression(type, args, pos, type.File);
     }
+    private static Expression BoxExpression(ref Context ctx, Position pos)
+    {
+        var expr = Expression(ref ctx);
+        return new BoxExpression(expr, pos);
+    }
     private static Expression SimpleExpression(ref Context ctx)
     {
         var matched = ctx.ForceMatch(MatchGroup
@@ -526,6 +531,8 @@ public static class Parser
                 .Or(TokenType.String)
                 .OrKeyword("cast")
                 .OrKeyword("new")
+                .OrKeyword("box")
+                .OrKeyword("typeof")
                 .OrKeyword("null")
                 .Or(MatchGroup.LP)
                 .OrKeyword("false")
@@ -541,8 +548,10 @@ public static class Parser
             { Type: TokenType.String, Value: var str, Pos: var pos, File: var file } => new StringExpression(str, file, pos),
             { Type: TokenType.Id, Value: var val, Pos: var pos, File: var file } => new VariableExpression(val, pos, file),
             { Type: TokenType.Keyword, Value: "cast", Pos: var pos } => Cast(ref ctx, pos),
+            { Type: TokenType.Keyword, Value: "typeof", Pos: var pos } => TypeOf(ref ctx, pos),
             { Type: TokenType.Bracket, Value: "(" } => ExpressionThen(ref ctx, MatchGroup.Match(TokenType.Bracket, ")")),
             { Type: TokenType.Keyword, Value: "new", Pos: var pos } => NewObjExpression(ref ctx, pos),
+            { Type: TokenType.Keyword, Value: "box", Pos: var pos } => BoxExpression(ref ctx, pos),
             { Type: TokenType.Keyword, Value: "false", Pos: var pos, File: var file } => new BoolExpression(false, pos, file),
             { Type: TokenType.Keyword, Value: "true", Pos: var pos, File: var file } => new BoolExpression(true, pos, file),
             { Type: TokenType.Keyword, Value: "null", Pos: var pos, File: var file } => new NullExpression(pos, file),
@@ -566,6 +575,15 @@ public static class Parser
         }
         return expr;
     }
+
+    private static Expression TypeOf(ref Context ctx, Position pos)
+    {
+        ctx.ForceMatch(MatchGroup.LP);
+        var type = ParseType(ref ctx);
+        ctx.ForceMatch(MatchGroup.RP);
+        return new TypeOfExpression(type, pos);
+    }
+
     private static Expression Cast(ref Context ctx, Position pos)
     {
         ctx.ForceMatch(MatchGroup.LP);

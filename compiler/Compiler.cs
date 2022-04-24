@@ -14,6 +14,19 @@ public static class Compiler
         public List<Variable> Globals = new();
         public Dictionary<string, Constant<string>> StringConstants = new();
         public Context() { }
+        public Constant<string> NewStr(string val)
+        {
+            if (StringConstants.TryGetValue(val, out var str))
+            {
+                return str;
+            }
+            else
+            {
+                var s = new Constant<string>($"str{StringConstants.Count}", new PtrTypeInfo(Char));
+                StringConstants.Add(val, s);
+                return s;
+            }
+        }
         public TypeInfo? GetTypeInfo(TypeExpression typeexpr)
         {
             if (typeexpr is PtrType ptr)
@@ -61,6 +74,7 @@ public static class Compiler
         var structs = statements.OfType<StructDefinitionStatement>().ToList();
         AddStructs(structs, ref ctx);
         var globalctx = new FunctionContext();
+        globalctx.NewVar("__globals_start", ctx.Void);
         var instrs = new List<InstructionBase>();
         foreach (var global in globals)
         {
@@ -73,6 +87,7 @@ public static class Compiler
                 ctx.Errors.Add(new Error("Global variables cannot be initialized only with constant values", global.Value.File, global.Value.Pos));
             }
         }
+        globalctx.NewVar("__globals_end", ctx.Void);
         globalctx.Variables.ForEach(x => x.IsGlobal = true);
         ctx.Globals = globalctx.Variables;
 
@@ -135,7 +150,7 @@ public static class Compiler
                 .AppendLine("True = 1")
                 .AppendLine("False = 0")
                 .AppendLine("section '.code' code readable executable")
-                .AppendLine("__start:") 
+                .AppendLine("__start:")
                 .AppendLine(string.Join('\n', globalsinit))
                 .AppendLine("call main")
                 .AppendLine("invoke ExitProcess, 0")
@@ -143,10 +158,11 @@ public static class Compiler
             if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
             {
                 result.AppendLine("section '.data' data readable writable");
+                GenerateTypeInfos(ref ctx, result);
                 foreach (var global in ctx.Globals)
                     result.AppendLine($"{global.Name} dq {(global.Type.Size > 8 ? string.Join(", ", Enumerable.Repeat("0", global.Type.Size / 8)) : "0")}");
                 foreach (var (s, str) in ctx.StringConstants)
-                    result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
+                    result.AppendLine($"{str.Value} db {string.Join(',', s.Select(x => (byte)x).Append((byte)0))}");
             }
             result
                 .AppendLine("section '.idata' import data readable writeable")
@@ -175,7 +191,7 @@ public static class Compiler
                 foreach (var global in ctx.Globals)
                     result.AppendLine($"{global.Name} dq {(global.Type.Size > 8 ? string.Join(", ", Enumerable.Repeat("0", global.Type.Size / 8)) : "0")}");
                 foreach (var (s, str) in ctx.StringConstants)
-                    result.AppendLine($"{str.Value} db { string.Join(',', s.Select(x => (byte)x).Append((byte)0)) }");
+                    result.AppendLine($"{str.Value} db {string.Join(',', s.Select(x => (byte)x).Append((byte)0))}");
             }
         }
         File.WriteAllText(output, result.ToString());
@@ -188,17 +204,7 @@ public static class Compiler
             {
                 if (instrs[i] is Instruction instr)
                 {
-                    if (instr.Op is Operation.Add or Operation.Sub && instr.Second is Constant<long> val && val.Value == 0)
-                    {
-                        instrs[i] = new Instruction(Operation.Equals, instr.First, null, instr.Destination);
-                        i--;
-                    }
-                    else if (instr.Op is Operation.Add or Operation.Sub && instr.First is Variable f && f.Name == instr.Destination.Name && instr.Second is Constant<long> cnst && cnst.Value == 1)
-                    {
-                        instrs[i] = new Instruction(instr.Op is Operation.Add ? Operation.Inc : Operation.Dec, null, null, instr.Destination);
-                        i--;
-                    }
-                    else if (i + 1 < instrs.Count && instrs[i + 1] is Instruction other && other.Op is Operation.Equals && other.First is Variable fst && fst.Name == instr.Destination.Name)
+                    if (i + 1 < instrs.Count && instrs[i + 1] is Instruction other && other.Op is Operation.Equals && other.First is Variable fst && fst.Name == instr.Destination.Name && fst.Type.Size == instr.Destination.Type.Size)
                     {
                         instrs[i] = new Instruction(instr.Op, instr.First, instr.Second, other.Destination);
                         instrs.RemoveAt(i + 1);
@@ -212,15 +218,55 @@ public static class Compiler
 
             }
     }
+    private static void GenerateTypeInfos(ref Context ctx, StringBuilder sb)
+    {
+        var generated = new HashSet<TypeInfo>();
+        foreach (var type in ctx.Types.Values)
+        {
+            GenerateTypeInfo(ref ctx, type, sb, generated);
+        }
+    }
+    private static void GenerateTypeInfo(ref Context ctx, TypeInfo type, StringBuilder sb, HashSet<TypeInfo> generated)
+    {
+        if (type is CustomTypeInfo custom && !generated.Contains(type))
+        {
+            generated.Add(type);
+            foreach (var field in custom.Fields.Values)
+            {
+                GenerateTypeInfo(ref ctx, field.Type, sb, generated);
+            }
+            sb.AppendLine($"__fields_of_{type.Name}:");
+            foreach(var (fldname, field) in custom.Fields)
+            {
+                var namestr = ctx.NewStr(fldname);
+                sb.AppendLine($"__field_{type.Name}_{fldname} dq {namestr}, __type_{field.Type.Name.Replace("*", "ptr")}, {field.Offset}");
+            }
+            var name = ctx.NewStr(type.Name);
+            sb.AppendLine($"__type_{type.Name} dq {name}, {type.Size}, __fields_of_{type.Name}, {custom.Fields.Count}, 0, {generated.Count}");
+        }
+        else if (type is PtrTypeInfo ptr && !generated.Contains(type))
+        {
+            var name = ctx.NewStr("ptr");
+            sb.AppendLine($"__type_{type.Name.Replace("*", "ptr")} dq {name}, {type.Size}, 0, 0, __type_{ptr.Underlaying.Name.Replace("*", "ptr")}");
+            generated.Add(type);
+            GenerateTypeInfo(ref ctx, ptr.Underlaying, sb, generated);
+        }
+        else if (type is not PtrTypeInfo && !generated.Contains(type))
+        {
+            var name = ctx.NewStr(type.Name);
+            sb.AppendLine($"__type_{type.Name} dq {name}, {type.Size}, 0, 0, 0, {generated.Count}");
+            generated.Add(type);
+        }
+    }
     private static void AddStructs(List<StructDefinitionStatement> structs, ref Context ctx)
     {
-        foreach (var structt in structs)
+        var structTypes = structs.Select(x => new CustomTypeInfo(x.Name, new(), new(), new())).ToList();
+        foreach (var t in structTypes)
         {
-            if (ctx.Types.ContainsKey(structt.Name))
-            {
-                ctx.Errors.Add(new Error($"Type {structt.Name} already defined", structt.File, structt.Pos));
-                continue;
-            }
+            ctx.Types.Add(t.Name, t);
+        }
+        foreach (var (structt, struc) in structs.Zip(structTypes))
+        {
             var fields = new Dictionary<string, FieldInfo>();
             int offset = 0;
             foreach (var field in structt.Fields)
@@ -238,8 +284,9 @@ public static class Compiler
             }
             var ctors = new List<FnInfo>();
             var methods = new List<FnInfo>();
-            var struc = new CustomTypeInfo(structt.Name, fields, ctors, methods);
-            ctx.Types.Add(structt.Name, struc);
+            struc.Constructors = ctors;
+            struc.Methods = methods;
+            struc.Fields = fields;
             foreach (var ctor in structt.Constructors)
             {
                 var @params = new List<(string name, TypeInfo type)>();
@@ -260,24 +307,24 @@ public static class Compiler
                 ctx.Fns.Add(fn);
                 ctors.Add(fn);
             }
-            foreach(var fn in structt.Methods)
-            { 
+            foreach (var fn in structt.Methods)
+            {
                 var @params = new List<(string name, TypeInfo type)>();
                 @params.Add(("this", new PtrTypeInfo(struc)));
-                foreach(var param in fn.Params)
+                foreach (var param in fn.Params)
                 {
-                    if(ctx.GetTypeInfo(param.Type) is TypeInfo type)
+                    if (ctx.GetTypeInfo(param.Type) is TypeInfo type)
                     {
                         @params.Add((param.Name, type));
                     }
-                    else 
+                    else
                     {
                         ctx.Errors.Add(new Error($"Unknown type {param.Type}", param.File, param.Type.Pos));
                     }
                 }
                 var name = $"{structt.Name}.{fn.Name}";
                 TypeInfo returnType = fn.RetType is null ? ctx.Void : ctx.GetTypeInfo(fn.RetType)!;
-                if(returnType is null)
+                if (returnType is null)
                 {
                     ctx.Errors.Add(new Error($"Unknown type {fn.RetType}", fn.RetType.File, fn.RetType.Pos));
                     returnType = ctx.Void;
@@ -286,6 +333,7 @@ public static class Compiler
                 ctx.Fns.Add(info);
                 methods.Add(info);
             }
+            struc.RecomputeSize();
         }
     }
     private static bool IsConstant(Expression value)
@@ -423,7 +471,7 @@ public static class Compiler
                     {
                         var type = InferExpressionType(member, ref fctx, ref ctx, null);
                         var valueType = InferExpressionType(ass.Value, ref fctx, ref ctx, type);
-                        if(!type.Equals(valueType))
+                        if (!type.Equals(valueType))
                         {
                             ctx.Errors.Add(
                                 new Error(
@@ -659,14 +707,14 @@ public static class Compiler
                     if (type is PtrTypeInfo ptr)
                     {
                         var indexType = InferExpressionType(index.Indexes[0], ref fctx, ref ctx, ctx.U64);
-                        if(!indexType.Equals(ctx.U64))
+                        if (!indexType.Equals(ctx.U64))
                         {
-                            ctx.Errors.Add(new Error($"Cannot index with type {indexType}", index.Indexes[0].File, index.Indexes[0].Pos)); 
+                            ctx.Errors.Add(new Error($"Cannot index with type {indexType}", index.Indexes[0].File, index.Indexes[0].Pos));
                         }
                         var i = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instructions, indexType);
                         var indexed = CompileExpression(index.Indexed, ref fctx, ref ctx, instructions, null);
                         var res = fctx.NewTemp(type);
-                        instructions.Add(new Instruction(Operation.Add, indexed, i, res)); 
+                        instructions.Add(new Instruction(Operation.Add, indexed, i, res));
                         return res;
                     }
                     else
@@ -675,8 +723,22 @@ public static class Compiler
                     }
                 }
                 break;
-            default:
-                ctx.Errors.Add(new Error($"Cant get address of {expr}", expr.File, expr.Pos));
+            case Expression exprs:
+                {
+                    var exprType = InferExpressionType(exprs, ref fctx, ref ctx, null);
+                    var res = CompileExpression(exprs, ref fctx, ref ctx, instructions, exprType);
+                    if (res is not Variable)
+                    {
+                        ctx.Errors.Add(new Error($"Cant get address of {expr}", expr.File, expr.Pos));
+                    }
+                    else
+                    {
+                        var tempref = fctx.NewTemp(new PtrTypeInfo(res.Type));
+                        instructions.Add(new Instruction(Operation.Ref, res, null, tempref));
+                        return tempref;
+                    }
+
+                }
                 break;
         }
         return fctx.NewTemp(ctx.I32);
@@ -701,18 +763,101 @@ public static class Compiler
             MemberAccessExpression member => CompileMember(member, ref fctx, ref ctx, instructions),
             CharExpression c => targetType?.Equals(ctx.U8) == true ? new Constant<long>((byte)c.Value, ctx.U8) : new Constant<long>((byte)c.Value, ctx.Char),
             MethodCallExpression method => CompileMethodCall(method, ref fctx, ref ctx, instructions),
+            BoxExpression box => CompileBoxExpression(box, ref fctx, ref ctx, instructions),
+            TypeOfExpression typeofexpr => CompileTypeOf(typeofexpr, ref fctx, ref ctx, instructions),
         };
+    }
+    private static Source CompileTypeOf(TypeOfExpression typeOf, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+        var type = ctx.GetTypeInfo(typeOf.Type);
+        if (type is null)
+        {
+            ctx.Errors.Add(new Error($"Unknown type {typeOf.Type}", typeOf.File, typeOf.Type.Pos));
+            return fctx.NewTemp(ctx.Types["TypeInfo"]);
+        }
+        return CompileTypeOf(type, ref fctx, ref ctx, instructions);
+    }
+    private static Source CompileTypeOf(TypeInfo type, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+        if (type is PtrTypeInfo ptrType)
+        {
+            var underType = CompileTypeOf(ptrType.Underlaying, ref fctx, ref ctx, instructions);
+            var newObj = ctx.Fns.First(x => x.Name == "new_obj" && x.Params[0].type.Name == "u64");
+            newObj.WasUsed = true;
+            var typeInfo = ctx.Types["TypeInfo"] as CustomTypeInfo;
+            var typeoftypeinfo = CompileTypeOf(typeInfo, ref fctx, ref ctx, instructions);
+            var obj = fctx.NewTemp(ctx.Types["Obj"]);
+            instructions.Add(new FnCallInstruction(newObj, new List<Source>() { new Constant<long>(typeInfo.Size, ctx.U64), typeoftypeinfo }, obj));
+            var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
+            instructions.Add(new Instruction(Operation.Ref, obj, null, objref));
+            var objptr = GetField(objref, obj.Type, (obj.Type as CustomTypeInfo).Fields["data"], ref fctx, ref ctx, instructions);
+            var typeinfovar = fctx.NewTemp(new PtrTypeInfo(typeInfo));
+            instructions.Add(new Instruction(Operation.Equals, objptr, null, typeinfovar));
+            SetField(typeinfovar,  typeInfo, typeInfo.Fields["name"], ctx.NewStr("ptr"), ref fctx, ref ctx, instructions);
+            SetField(typeinfovar,  typeInfo, typeInfo.Fields["size"], new Constant<long>(8, ctx.U64), ref fctx, ref ctx, instructions);
+            SetField(typeinfovar,  typeInfo, typeInfo.Fields["field_count"], new Constant<long>(0, ctx.U64), ref fctx, ref ctx, instructions);
+            SetField(typeinfovar,  typeInfo, typeInfo.Fields["underlaying"], underType, ref fctx, ref ctx, instructions);
+            SetField(typeinfovar,  typeInfo, typeInfo.Fields["id"], new Constant<long>(-1, ctx.I64), ref fctx, ref ctx, instructions);
+            return typeinfovar;
+        }
+        else
+        {
+            var typeInfo = new Variable($"__type_{type.Name}", ctx.Types["TypeInfo"]);
+            typeInfo.IsGlobal = true;
+            var res = fctx.NewTemp(new PtrTypeInfo(ctx.Types["TypeInfo"]));
+            instructions.Add(new Instruction(Operation.Ref, typeInfo, null, res));
+            return res;
+        }
+    }
+    private static void SetField(Variable objref, TypeInfo objtype, FieldInfo field, Source data, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+
+        var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
+        var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
+        instructions.Add(new Instruction(Operation.Equals, objref, null, temp));
+        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
+        instructions.Add(new Instruction(Operation.SetRef, data, null, tempr));
+    }
+    private static Variable GetField(Variable objref, TypeInfo objtype, FieldInfo field, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+
+        var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
+        var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
+        var res = fctx.NewTemp(field.Type);
+        instructions.Add(new Instruction(Operation.Equals, objref, null, temp));
+        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
+        instructions.Add(new Instruction(Operation.Deref, tempr, null, res));
+        return res;
+    }
+    private static Source CompileBoxExpression(BoxExpression box, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    {
+        var type = InferExpressionType(box.Expr, ref fctx, ref ctx, null);
+        var expr = CompileExpression(box.Expr, ref fctx, ref ctx, instructions, type);
+        var U64 = ctx.U64;
+        var objtype = ctx.Types["Obj"] as CustomTypeInfo;
+        var allocatefn = ctx.Fns.First(x => x.Name == "new_obj" && x.Params[0].type.Equals(U64));
+        allocatefn.WasUsed = true;
+        var obj = fctx.NewTemp(objtype);
+        var typeofexpr = CompileTypeOf(type, ref fctx, ref ctx, instructions);
+        instructions.Add(new FnCallInstruction(allocatefn, new List<Source>() { new Constant<long>(type.Size, ctx.U64), typeofexpr}, obj));
+        var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
+        instructions.Add(new Instruction(Operation.Ref, obj, null, objref));
+        var objdata = GetField(objref, objtype, objtype.Fields["data"], ref fctx, ref ctx, instructions);
+        var typedobjdata = fctx.NewTemp(new PtrTypeInfo(type));
+        instructions.Add(new Instruction(Operation.Equals, objdata, null, typedobjdata));
+        instructions.Add(new Instruction(Operation.SetRef, expr, null, typedobjdata));
+        return obj;
     }
     private static Source CompileMethodCall(MethodCallExpression method, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
-        var type = InferExpressionType(method.Expr, ref fctx, ref ctx, null); 
-        if(type is CustomTypeInfo cust && TryGetFunction($"{cust.Name}.{method.Name}", method.Args, ref ctx, ref fctx, true) is FnInfo fn)
+        var type = InferExpressionType(method.Expr, ref fctx, ref ctx, null);
+        if (type is CustomTypeInfo cust && TryGetFunction($"{cust.Name}.{method.Name}", method.Args, ref ctx, ref fctx, true) is FnInfo fn)
         {
             fn.WasUsed = true;
             var thisptr = CompileRefOf(method.Expr, ref fctx, ref ctx, instructions);
             var args = new List<Source>();
             args.Add(thisptr);
-            foreach(var (arg, targetType) in method.Args.Zip(fn.Params.Skip(1).Select(x => x.type)))
+            foreach (var (arg, targetType) in method.Args.Zip(fn.Params.Skip(1).Select(x => x.type)))
             {
                 args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
             }
@@ -720,15 +865,15 @@ public static class Compiler
             instructions.Add(new FnCallInstruction(fn, args, result));
             return result;
         }
-        else if(type is PtrTypeInfo ptr 
-                && ptr.Underlaying is CustomTypeInfo custptr 
+        else if (type is PtrTypeInfo ptr
+                && ptr.Underlaying is CustomTypeInfo custptr
                 && TryGetFunction($"{custptr.Name}.{method.Name}", method.Args, ref ctx, ref fctx, true) is FnInfo fninfo)
         {
             fninfo.WasUsed = true;
             var thisptr = CompileExpression(method.Expr, ref fctx, ref ctx, instructions, type);
             var args = new List<Source>();
             args.Add(thisptr);
-            foreach(var (arg, targetType) in method.Args.Zip(fninfo.Params.Skip(1).Select(x => x.type)))
+            foreach (var (arg, targetType) in method.Args.Zip(fninfo.Params.Skip(1).Select(x => x.type)))
             {
                 args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
             }
@@ -736,7 +881,7 @@ public static class Compiler
             instructions.Add(new FnCallInstruction(fninfo, args, result));
             return result;
         }
-        else 
+        else
         {
             ctx.Errors.Add(new Error($"Type {type} does not contains method {method.Name}", method.File, method.Pos));
             return new Constant<long>(0, ctx.I32);
@@ -854,16 +999,7 @@ public static class Compiler
 
     private static Source CompileStr(string value, ref Context ctx)
     {
-        if (ctx.StringConstants.TryGetValue(value, out var v))
-        {
-            return v;
-        }
-        else
-        {
-            var str = new Constant<string>($"str{ctx.StringConstants.Count}", new PtrTypeInfo(ctx.Char));
-            ctx.StringConstants.Add(value, str);
-            return str;
-        }
+        return ctx.NewStr(value);
     }
 
     private static Source CompileDeref(DereferenceExpression deref, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
@@ -915,17 +1051,17 @@ public static class Compiler
     }
     private static Source CompileRef(RefExpression r, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instrs)
     {
-        switch(r.Expr)
+        switch (r.Expr)
         {
             case VariableExpression varr:
-            {
-                var type = InferExpressionType(varr, ref fctx, ref ctx, null);
-                PtrTypeInfo destType = new PtrTypeInfo(type);
-                var v = CompileExpression(varr, ref fctx, ref ctx, instrs, type);
-                var res = fctx.NewTemp(destType);
-                instrs.Add(new Instruction(Operation.Ref, v, null, res));
-                return res;
-            }
+                {
+                    var type = InferExpressionType(varr, ref fctx, ref ctx, null);
+                    PtrTypeInfo destType = new PtrTypeInfo(type);
+                    var v = CompileExpression(varr, ref fctx, ref ctx, instrs, type);
+                    var res = fctx.NewTemp(destType);
+                    instrs.Add(new Instruction(Operation.Ref, v, null, res));
+                    return res;
+                }
             case IndexExpression index:
                 return CompileRefOf(index, ref fctx, ref ctx, instrs);
             case MemberAccessExpression member:
@@ -1129,8 +1265,12 @@ public static class Compiler
                 return InferNull(ref ctx, target);
             case CharExpression:
                 return target?.Equals(ctx.U8) == true ? ctx.U8 : ctx.Char;
+            case TypeOfExpression:
+                return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : new PtrTypeInfo(ctx.Types["TypeInfo"]);
             case StringExpression:
-                return new PtrTypeInfo(ctx.Char);
+                return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : new PtrTypeInfo(ctx.Char);
+            case BoxExpression box:
+                return ctx.Types["Obj"];
             case CastExpression cast:
                 {
                     if (ctx.GetTypeInfo(cast.Type) is TypeInfo type)
@@ -1148,11 +1288,11 @@ public static class Compiler
                     var type = InferExpressionType(member.Expr, ref fctx, ref ctx, null);
                     if (type is CustomTypeInfo custom && custom.Fields.TryGetValue(member.MemberName, out var fld))
                     {
-                        return fld.Type;
+                        return fld.Type is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : fld.Type;
                     }
                     else if (type is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo cust && cust.Fields.TryGetValue(member.MemberName, out var f))
                     {
-                        return f.Type;
+                        return f.Type is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : f.Type;
                     }
                     else
                     {
@@ -1164,13 +1304,13 @@ public static class Compiler
                 {
                     var type = InferExpressionType(method.Expr, ref fctx, ref ctx, null);
                     CustomTypeInfo? cust = null;
-                    if(
-                        ((cust = type as CustomTypeInfo) is not null || (cust = (type as PtrTypeInfo)?.Underlaying as CustomTypeInfo) is not null) 
+                    if (
+                        ((cust = type as CustomTypeInfo) is not null || (cust = (type as PtrTypeInfo)?.Underlaying as CustomTypeInfo) is not null)
                         && TryGetFunction($"{cust.Name}.{method.Name}", method.Args, ref ctx, ref fctx, true) is FnInfo fn)
                     {
-                            return fn.RetType;
+                        return fn.RetType is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : fn.RetType;
                     }
-                    else 
+                    else
                     {
                         ctx.Errors.Add(new Error($"Type {type} does not contains method {method.Name}", method.File, method.Pos));
                         return ctx.Void;
@@ -1210,6 +1350,10 @@ public static class Compiler
                         {
                             return target;
                         }
+                        else if (varr.Type is PtrTypeInfo && target.Equals(new PtrTypeInfo(ctx.Void)))
+                        {
+                            return new PtrTypeInfo(ctx.Void);
+                        }
                         else
                         {
                             ctx.Errors.Add(new Error($"Cannot implicitly convert {varr.Type} to {target}", v.File, v.Pos));
@@ -1228,6 +1372,10 @@ public static class Compiler
                         {
                             return target;
                         }
+                        else if (gvar.Type is PtrTypeInfo && target.Equals(new PtrTypeInfo(ctx.Void)))
+                        {
+                            return new PtrTypeInfo(ctx.Void);
+                        }
                         else
                         {
                             ctx.Errors.Add(new Error($"Cannot implicitly convert {gvar.Type} to {target}", v.File, v.Pos));
@@ -1242,7 +1390,7 @@ public static class Compiler
                     return ctx.I64;
                 }
             case RefExpression r:
-                return InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
+                return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
                 {
                     PtrTypeInfo ptr => new PtrTypeInfo(ptr),
                     TypeInfo t => new PtrTypeInfo(t),
@@ -1257,7 +1405,7 @@ public static class Compiler
                     var type = InferExpressionType(index.Indexed, ref fctx, ref ctx, null);
                     if (type is PtrTypeInfo ptr)
                     {
-                        return ptr.Underlaying;
+                        return ptr.Underlaying is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : ptr.Underlaying;
                     }
                     else
                     {
@@ -1275,7 +1423,7 @@ public static class Compiler
                     }
                     if (TryGetFunction(fncall.Name, fncall.Args, ref ctx, ref fctx) is FnInfo fn)
                     {
-                        return fn.RetType;
+                        return fn.RetType is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : fn.RetType;
                     }
                     else
                     {
@@ -1298,13 +1446,13 @@ public static class Compiler
         var prev = ctx.Errors.Count;
         if (fn is null)
         {
-            var posibles = ctx.Fns.Where(x => x.Name == name && x.Params.Count == args.Count).ToList();
+            var posibles = ctx.Fns.Where(x => x.Name == name && x.Params.Count - (isInstance ? 1 : 0) == args.Count).ToList();
             if (posibles.Count != 0)
             {
                 foreach (var posible in posibles)
                 {
                     types.Clear();
-                    foreach (var (arg, type) in args.Zip(posible.Params))
+                    foreach (var (arg, type) in args.Zip(posible.Params.Skip(isInstance ? 1 : 0)))
                     {
                         types.Add(InferExpressionType(arg, ref fctx, ref ctx, type.type));
                     }
@@ -1316,7 +1464,7 @@ public static class Compiler
                 }
             }
         }
-        while(prev < ctx.Errors.Count)
+        while (prev < ctx.Errors.Count)
         {
             ctx.Errors.RemoveAt(ctx.Errors.Count - 1);
         }
@@ -1329,7 +1477,7 @@ public static class Compiler
             return ptr;
         return new PtrTypeInfo(ctx.Void);
     }
-    
+
     private static bool CheckAllCodePathReturns(Statement stat)
     {
         return stat switch

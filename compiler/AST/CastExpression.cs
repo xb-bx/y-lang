@@ -9,3 +9,11 @@ public class CastExpression : Expression
     public override string ToString()
         => $"cast({Value}, {Type})";
 }
+public class TypeOfExpression : Expression 
+{
+    public TypeExpression Type { get; private set; }
+    public TypeOfExpression(TypeExpression type, Position pos)
+        => (Type, Pos, File) = (type, pos, type.File);
+    public override string ToString()
+        => $"typeof({Type})";
+}

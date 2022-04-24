@@ -5,8 +5,8 @@ struct StringBuilder
     size: u64;
     constructor() 
     {
-        this.data = cast(new_obj(32), *char);
-        this.size = 32;
+        this.data = cast(new_array(128, typeof(char)).data, *char);
+        this.size = 128;
         this.count = 0;
         let i: u64 = 0;
         while i < this.size 
@@ -24,7 +24,11 @@ struct StringBuilder
     }
     fn append(str: *char, len: u64): *StringBuilder 
     {
-        if (this.count + len) > this.size this.grow();
+        if (this.count + len) >= this.size 
+        {
+            this.grow();
+            
+        }
         let i: u64 = 0;
         while i < len 
         {
@@ -32,6 +36,7 @@ struct StringBuilder
             i = i + 1;
         }
         this.count = this.count + i;
+        
         ret this;
     }
     fn append(str: *char): *StringBuilder 
@@ -46,15 +51,8 @@ struct StringBuilder
             this.append('0');
             ret this;
         }
-        let buff: *char = null;
-        let secondbuff: *char = null;
-        asm 
-        {
-            sub rsp, 32
-            mov [rbp - 16], rsp
-            sub rsp, 32
-            mov [rbp - 24], rsp
-        }
+        let buff: *char = cast(new_obj(64, typeof(char)).data, *char);
+        let secondbuff: *char = cast(new_obj(64, typeof(char)).data, *char);
         let i: u64 = 0;
         let index: u64 = 0;
         while x > 0 
@@ -82,15 +80,8 @@ struct StringBuilder
             this.append('0');
             ret this;
         }
-        let buff: *char = null;
-        let secondbuff: *char = null;
-        asm 
-        {
-            sub rsp, 32
-            mov [rbp - 16], rsp
-            sub rsp, 32
-            mov [rbp - 24], rsp
-        }
+        let buff: *char = cast(new_obj(64, typeof(char)), *char);
+        let secondbuff: *char = cast(new_obj(64, typeof(char)), *char);
         let i: u64 = 0;
         let index: u64 = 0;
         let wasneg = false;
@@ -129,14 +120,14 @@ struct StringBuilder
     }
     fn build(): *char
     {
-        let string = cast(new_array(this.count), *char);
+        let string = cast(new_array(this.count + 1, typeof(char)).data, *char);
         let i: u64 = 0;
         while i < this.count 
         {
             string[i] = this.data[i];
             i = i + 1;
         }
-        string[this.count] = cast(0, char);
+        string[i] = cast(0, char);
         ret string;
     }
     fn write() 
@@ -146,7 +137,7 @@ struct StringBuilder
     fn grow()
     {
         let newsize = this.size * 2;
-        let newdata = cast(new_array(newsize), *char);
+        let newdata = cast(new_array(newsize, typeof(char)).data, *char);
         let i: u64 = 0;
         while i < this.size 
         {
