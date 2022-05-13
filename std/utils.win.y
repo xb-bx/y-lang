@@ -1,35 +1,36 @@
-fn writechar(x: char)  
+dllimport "kernel32.dll" 
 {
+    extern fn WriteConsoleA(handle: *void, str: *char, len: u32, written: *u32);
+    extern fn GetStdHandle(num: i32): *void;
+    extern fn Sleep(ms: u32);
+    extern fn exit(code: i32) from "ExitProcess";
+    extern fn GetConsoleMode(handle: *void, mode: *u32);
+    extern fn SetConsoleMode(handle: *void, mode: u32);
+    extern fn GetProcessHeap(): *void;
+    extern fn HeapAlloc(heap: *void, flags: u32, size: u64): *u8;
+    extern fn HeapFree(heap: *void, flags: u32, ptr: *u8);
+    extern fn GetTickCount(): i32;
+    extern fn ReadConsoleA(handle: *void, buffer: *u8, count: u32, read: *u32, inputControl: *void);
+}
+fn exit() { exit(0); }
+fn writechar(x: char)
+{
+    let buff: *char = null;
     asm 
     {
-        invoke GetStdHandle, STD_OUTPUT_HANDLE
-        lea rbx, [rbp + 16]
-        invoke WriteConsoleA, rax, rbx, 1, 0
+        sub rsp, 8
+        mov [rbp - 8], rsp
     }
+    buff[0] = x;
+    WriteConsoleA(GetStdHandle(-11), buff, 1, null);
 }
 fn writestr(str: *char, len: u64)
 {
-    asm 
-    {
-        invoke GetStdHandle, STD_OUTPUT_HANDLE
-        mov rbx, [rbp + 16]
-        mov r10d, dword[rbp + 24]
-        invoke WriteConsoleA, rax, rbx, r10d, 0
-    }
-}
-fn sleep(ms: i32)  
-{
-    asm 
-    {
-        invoke Sleep, dword[rbp + 16]
-    }
-}
-fn exit() 
-{
-    asm { invoke ExitProcess, 0 } 
+    WriteConsoleA(GetStdHandle(-11), str, len, null);
 }
 fn clear()  
 {
+    let buff: *char = null;
     enableVT();
     asm 
     {
@@ -55,29 +56,18 @@ fn clear()
         inc rax
         mov byte[rax], 0x4a
         inc rax
-        invoke GetStdHandle, STD_OUTPUT_HANDLE
-        mov r14, rax
-        mov r15, rsp
-        mov r13, 10
-        invoke WriteConsoleA, r14, r15, r13d, 0, 0
-        add rsp, 10
+        mov [rbp - 8], rsp
     }
+    writestr(buff, 10);
 }
 fn enableVT()  
 {
     let hOut = 0;
-    let mode = 0;
-    asm 
-    {
-        invoke GetStdHandle, STD_OUTPUT_HANDLE
-        mov qword[rbp - 8], rax
-        lea r14, [rbp - 16]
-        invoke GetConsoleMode, qword[rbp - 8], r14
-        or qword[rbp - 16], 4
-        mov r14, [rbp - 16]
-        mov r15, [rbp - 8]
-        invoke SetConsoleMode, r15, r14 
-    }
+    let mode: u32 = 0;
+    let handle = GetStdHandle(-11);
+    GetConsoleMode(handle, &mode);
+    mode = mode | 4;
+    SetConsoleMode(handle, mode);
 }
 fn commandline(): *char 
 {
@@ -92,24 +82,11 @@ fn commandline(): *char
 }
 fn alloc(size: u64): *u8
 {
-    asm 
-    {
-        invoke GetProcessHeap
-        invoke HeapAlloc, rax, 8, qword[rbp + 16]
-        mov rsp, rbp
-        pop rbp
-        ret
-    }
-    ret null;
+    ret HeapAlloc(GetProcessHeap(), 8, size);
 }
 fn free(handle: *u8)
 {
-    asm 
-    {
-        invoke GetProcessHeap
-        invoke HeapFree, rax, 0, qword[rbp + 16]
-    }
-    ret;
+    HeapFree(GetProcessHeap(), 0, handle);
 }
 fn cmdargs(argc: *i32): **char 
 {

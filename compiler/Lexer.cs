@@ -25,6 +25,9 @@ public static class Lexer
         "include",
         "constructor",
         "typeof",
+        "dllimport",
+        "extern",
+        "from",
     };
     private static readonly HashSet<char> brackets = new()
     {

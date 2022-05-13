@@ -2,6 +2,7 @@ namespace YLang.IR;
 
 public class IRCompiler
 {
+    private static string[] firstFourArgsWinx64 = new[] { "rcx", "rdx", "r8", "r9"};
     public static List<string> Compile(List<InstructionBase> instructions, List<Variable> vars, FnInfo? fn)
     {
         var lines = new List<string>();
@@ -11,7 +12,7 @@ public class IRCompiler
             int offset = 16;
             foreach (var (arg, i) in vars.Where(x => x.IsArg).Select((x, i) => (x, i)))
             {
-                arg.Offset = offset; 
+                arg.Offset = offset;
                 offset += (arg.Type.Size < 8 ? 8 : arg.Type.Size);
             }
             var lastarg = vars.Where(x => x.IsArg).LastOrDefault();
@@ -79,62 +80,90 @@ public class IRCompiler
                     break;
                 case FnCallInstruction fncall:
                     {
-                        if (fncall.Fn.RetType.Size > 8)
+                        if (fncall.Fn.CallingConvention == CallingConvention.Windows64)
                         {
-                            lines.Add($"sub rsp, {fncall.Fn.RetType.Size}");
-                        }
-                        foreach (var arg in fncall.Args.Select(x => x).Reverse())
-                            if (arg is Variable v)
+                            if(fncall.Args.Count > 4)
                             {
-                                if (v.Type.Size > 8)
+                                foreach(var arg in fncall.Args.Skip(4))
                                 {
-                                    lines.Add($"lea rax, {v.ToAsm(v.Type.Size - 8)}");
-                                    for (int i = 0; i < v.Type.Size; i += 8)
-                                    {
-                                        lines.Add($"push qword[rax]");
-                                        lines.Add($"sub rax, 8");
-                                    }
-
-                                }
-                                else
-                                {
-                                    lines.Add($"push qword{v.ToAsm()}");
-                                }
+                                    if(arg is Variable v)
+                                        lines.Add($"push qword{v.ToAsm()}");
+                                    else 
+                                        lines.Add($"push {arg}");
+                                }    
                             }
-                            else
+                            lines.Add("sub rsp, 32");
+                            foreach(var (arg, i) in fncall.Args.Take(4).Select((x, i) => (x, i)))
                             {
-                                lines.Add($"push {arg}");
-                            }
-                        lines.Add($"call {fncall.Fn.NameInAsm}");
-                        if (fncall.Dest is not null)
-                        {
-                            if (fncall.Dest.Type.Size > 8)
-                            {
-                                if (fncall.Args.Count > 0)
-                                    lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
-
-                                for (int i = 0; i < fncall.Dest.Type.Size; i += 8)
-                                {
-                                    lines.Add("pop rax");
-                                    lines.Add($"mov qword{fncall.Dest.ToAsm(i)}, rax");
-                                }
-                            }
-                            else
+                                lines.Add($"mov {firstFourArgsWinx64[i]}, {(arg is Variable v ? v.ToAsm() : arg)}");
+                            } 
+                            lines.Add($"call [{fncall.Fn.NameInAsm}]");
+                            lines.Add($"add rsp, {(fncall.Args.Count < 4 ? 32 : 32 + (fncall.Args.Count - 4) * 8)}");
+                            if(fncall.Dest is not null)
                             {
                                 lines.Add($"mov qword{fncall.Dest.ToAsm()}, rax");
-                                if (fncall.Args.Count > 0)
-                                    lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
                             }
                         }
                         else
                         {
-                            if (fncall.Args.Count > 0)
-                                lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
                             if (fncall.Fn.RetType.Size > 8)
-                                lines.Add($"add rsp, {fncall.Fn.RetType.Size}");
+                            {
+                                lines.Add($"sub rsp, {fncall.Fn.RetType.Size}");
+                            }
+                            foreach (var arg in fncall.Args.Select(x => x).Reverse())
+                                if (arg is Variable v)
+                                {
+                                    if (v.Type.Size > 8)
+                                    {
+                                        lines.Add($"lea rax, {v.ToAsm(v.Type.Size - 8)}");
+                                        for (int i = 0; i < v.Type.Size; i += 8)
+                                        {
+                                            lines.Add($"push qword[rax]");
+                                            lines.Add($"sub rax, 8");
+                                        }
+
+                                    }
+                                    else
+                                    {
+                                        lines.Add($"push qword{v.ToAsm()}");
+                                    }
+                                }
+                                else
+                                {
+                                    lines.Add($"push {arg}");
+                                }
+                            lines.Add($"call {fncall.Fn.NameInAsm}");
+                            if (fncall.Dest is not null)
+                            {
+                                if (fncall.Dest.Type.Size > 8)
+                                {
+                                    if (fncall.Args.Count > 0)
+                                        lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
+
+                                    for (int i = 0; i < fncall.Dest.Type.Size; i += 8)
+                                    {
+                                        lines.Add("pop rax");
+                                        lines.Add($"mov qword{fncall.Dest.ToAsm(i)}, rax");
+                                    }
+                                }
+                                else
+                                {
+                                    lines.Add($"mov qword{fncall.Dest.ToAsm()}, rax");
+                                    if (fncall.Args.Count > 0)
+                                        lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
+                                }
+                            }
+                            else
+                            {
+                                if (fncall.Args.Count > 0)
+                                    lines.Add($"add rsp, {fncall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
+                                if (fncall.Fn.RetType.Size > 8)
+                                    lines.Add($"add rsp, {fncall.Fn.RetType.Size}");
+                            }
                         }
                     }
                     break;
+
                 case Instruction inst: CompileInstr(inst, lines, vars, fn, resoffset); break;
             }
         }
@@ -229,7 +258,7 @@ public class IRCompiler
                         CompileSource(instr.First, lines, "byte", "al");
                         CompileSource(instr.Second, lines, "byte", "bl");
                         lines.Add($"{(IsUnsignedNumberType(instr.Destination.Type) ? "" : "i")}div bl");
-                        lines.Add($"mov byte{instr.Destination.ToAsm()}, {(instr.Op is Operation.Mod ? "ah": "al")}");
+                        lines.Add($"mov byte{instr.Destination.ToAsm()}, {(instr.Op is Operation.Mod ? "ah" : "al")}");
                     }
                     else
                     {

@@ -1,5 +1,8 @@
 include "std/utils.y";
-
+dllimport "user32.dll" 
+{
+    extern fn get_key_state(key: i32): i32 from "GetAsyncKeyState";
+}
 struct Point 
 {
     x: i32;
@@ -26,6 +29,7 @@ let sleeptime = 35;
 
 fn setcursor()
 {
+    let buff: *char = null;
     asm 
     {
         sub rsp, 8
@@ -35,10 +39,9 @@ fn setcursor()
         mov byte[rsp + 3], ';'
         mov byte[rsp + 4], '1'
         mov byte[rsp + 5], 'H'
-        mov rdi, rsp
-        invoke GetStdHandle, STD_OUTPUT_HANDLE
-        invoke WriteConsoleA, rax, rdi, 6, 0 
+        mov [rbp - 8], rsp
     }
+    writestr(buff, 6);
 }
 
 fn main() 
@@ -47,11 +50,7 @@ fn main()
     dir.y = 0;
     map = cast(alloc(2048), *char);
     snake = cast(alloc(2048), *Point);
-    asm 
-    {
-        invoke GetTickCount
-        mov dword[seed], eax
-    }
+    seed = GetTickCount();
     let len = sizey * (sizex + 2); 
     initsnake();
     placefruit();
@@ -63,7 +62,7 @@ fn main()
         movesnake();
         fillmap();
         writestr(map, len);
-        sleep(sleeptime);
+        Sleep(sleeptime);
     }
 }
 fn placefruit() 
@@ -221,14 +220,4 @@ fn fillmap()
     }
     map[cast(fruit.y * (sizex + 2) + fruit.x, u64)] = 'A';
 
-}
-fn get_key_state(key: i32): i32 
-{  
-    let res = 0;
-    asm 
-    {
-        invoke GetAsyncKeyState, dword[rbp + 16]
-        mov dword[rbp - 8], eax
-    }
-    ret res;
 }

@@ -56,15 +56,15 @@ public static class Parser
     {
         void Skip(ref int i, List<Token> tokens)
         {
-                while(tokens[i] is not Token { Type: TokenType.Preprocessor, Value: "endif"})
+            while (tokens[i] is not Token { Type: TokenType.Preprocessor, Value: "endif" })
+            {
+                if (tokens[i] is Token { Type: TokenType.Preprocessor, Value: "if" })
                 {
-                    if(tokens[i] is Token { Type: TokenType.Preprocessor, Value: "if"})
-                    {
-                        i++;
-                        Skip(ref i, tokens);
-                    } 
                     i++;
+                    Skip(ref i, tokens);
                 }
+                i++;
+            }
             i--;
         }
         var result = new List<Token>(tokens.Count);
@@ -78,7 +78,7 @@ public static class Parser
                     if (i + 1 < tokens.Count && tokens[i + 1] is Token { Type: TokenType.Id, Value: var symbol })
                     {
                         i++;
-                        if(!definedSymbols.Contains(symbol))
+                        if (!definedSymbols.Contains(symbol))
                         {
                             Skip(ref i, tokens);
                         }
@@ -101,7 +101,7 @@ public static class Parser
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
-            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("include").OrKeyword("struct"), out var t);
+            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("include").OrKeyword("struct").OrKeyword("dllimport"), out var t);
             Console.WriteLine($"{m} {t}");
             if (m)
             {
@@ -110,6 +110,7 @@ public static class Parser
                     case "fn": res.Add(ParseFunction(ref ctx, t.Pos)); break;
                     case "let": res.Add(Let(ref ctx, t.Pos)); break;
                     case "struct": res.Add(Struct(ref ctx, t.Pos)); break;
+                    case "dllimport": res.Add(DllImport(ref ctx, t.Pos)); break;
                     case "include":
                         {
                             var file = ctx.ForceMatch(MatchGroup.Match(TokenType.String), new Token { Type = TokenType.String, Value = "<undefined>" });
@@ -140,6 +141,47 @@ public static class Parser
                 ctx.Pos++;
         }
         return res;
+    }
+
+    private static Statement DllImport(ref Context ctx, Position pos)
+    {
+        var dllname = ctx.ForceMatch(MatchGroup.Match(TokenType.String));
+        var imports = new List<ExternFunctionDefinition>();
+        ctx.ForceMatch(MatchGroup.LBRC);
+        while (!ctx.Match(MatchGroup.RBRC, out _))
+        {
+            imports.Add(ExternFn(ref ctx));
+        }
+        return new DllImportStatement(dllname.Value, imports, dllname.File, pos);
+    }
+
+    private static ExternFunctionDefinition ExternFn(ref Context ctx)
+    {
+        var pos = ctx.ForceMatch(MatchGroup.MatchKeyword("extern")).Pos;
+        ctx.ForceMatch(MatchGroup.MatchKeyword("fn"));
+        var fnname = ctx.ForceMatch(MatchGroup.Match(TokenType.Id), Token.UndefinedId);
+        var parameters = new List<Parameter>();
+        ctx.ForceMatch(MatchGroup.LP);
+        while (!ctx.Match(MatchGroup.RP, out _))
+        {
+            var pname = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+            ctx.ForceMatch(MatchGroup.Colon);
+            var type = ParseType(ref ctx);
+            ctx.Match(MatchGroup.Match(TokenType.Comma), out var _);
+            parameters.Add(new Parameter(pname.Value, type));
+        }
+        TypeExpression? retType = null;
+        if (ctx.Match(MatchGroup.Colon, out _))
+        {
+            retType = ParseType(ref ctx);
+        }
+        string? importname = null;
+        if(ctx.Match(MatchGroup.MatchKeyword("from"), out _))
+        {
+            importname = ctx.ForceMatch(MatchGroup.Match(TokenType.String)).Value;
+        }
+        ctx.ForceMatch(MatchGroup.Semicolon);
+        return new ExternFunctionDefinition(fnname.Value, parameters, fnname.File, pos, retType, importname);
     }
 
     private static Statement Struct(ref Context ctx, Position pos)
@@ -414,7 +456,7 @@ public static class Parser
     private static Expression BinaryAnd(ref Context ctx)
     {
         var first = BinaryXor(ref ctx);
-        if(ctx.MatchOp("&", out _))
+        if (ctx.MatchOp("&", out _))
         {
             var snd = BinaryAnd(ref ctx);
             return new BinaryExpression(first, snd, "&");
@@ -424,7 +466,7 @@ public static class Parser
     private static Expression BinaryXor(ref Context ctx)
     {
         var first = BinaryOr(ref ctx);
-        if(ctx.MatchOp("^", out _))
+        if (ctx.MatchOp("^", out _))
         {
             var snd = BinaryXor(ref ctx);
             return new BinaryExpression(first, snd, "^");
@@ -434,7 +476,7 @@ public static class Parser
     private static Expression BinaryOr(ref Context ctx)
     {
         var first = Boolean(ref ctx);
-        if(ctx.MatchOp("|", out _))
+        if (ctx.MatchOp("|", out _))
         {
             var snd = BinaryOr(ref ctx);
             return new BinaryExpression(first, snd, "|");

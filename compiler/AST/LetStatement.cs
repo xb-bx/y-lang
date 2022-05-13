@@ -11,4 +11,12 @@ public class LetStatement : Statement
         => $"let {Name}: {Type} = {Value};";
 
 }
+public class DllImportStatement : Statement
+{
+    public string Dll { get; private set; }
+    public List<ExternFunctionDefinition> Imports { get; private set; }
+    public DllImportStatement(string dll, List<ExternFunctionDefinition> imports, string file, Position pos)
+        => (Dll, Imports, File, Pos) = (dll, imports, file, pos);
+
+}
 

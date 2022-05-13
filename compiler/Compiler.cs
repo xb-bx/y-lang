@@ -72,6 +72,7 @@ public static class Compiler
         var fns = statements.OfType<FnDefinitionStatement>().ToList();
         var globals = statements.OfType<LetStatement>().ToList();
         var structs = statements.OfType<StructDefinitionStatement>().ToList();
+        var imports = statements.OfType<DllImportStatement>().ToList();
         AddStructs(structs, ref ctx);
         var globalctx = new FunctionContext();
         globalctx.NewVar("__globals_start", ctx.Void);
@@ -91,7 +92,33 @@ public static class Compiler
         globalctx.Variables.ForEach(x => x.IsGlobal = true);
         ctx.Globals = globalctx.Variables;
 
+        foreach (var import in imports)
+        {
+            foreach (var fn in import.Imports)
+            {
 
+                var name = fn.Name;
+                var parameters = new List<(string name, TypeInfo type)>();
+                foreach (var p in fn.Parameters)
+                {
+                    if (ctx.GetTypeInfo(p.Type) is TypeInfo type)
+                    {
+                        parameters.Add((p.Name, type));
+                    }
+                    else
+                    {
+                        ctx.Errors.Add(new Error($"Undefined type {p.Type}", p.File, p.Pos));
+                    }
+                }
+                var retType = fn.ReturnType is not null ? ctx.GetTypeInfo(fn.ReturnType) : ctx.Void;
+                if (retType is null)
+                {
+                    ctx.Errors.Add(new Error($"Undefined type {fn.ReturnType}", fn.File, fn.ReturnType!.Pos));
+                    retType = ctx.Types["void"];
+                }
+                ctx.Fns.Add(new FnInfo(name, parameters, retType, null, CallingConvention.Windows64));
+            }
+        }
         if (fns.Count == 0)
             return new();
         AddFunctions(ref ctx, fns);
@@ -108,7 +135,7 @@ public static class Compiler
         while (smthWasCompiled)
         {
             smthWasCompiled = false;
-            foreach (var fn in ctx.Fns.Where(x => x.WasUsed && x.Compiled == null))
+            foreach (var fn in ctx.Fns.Where(x => x.WasUsed && x.Compiled is null && x.Body is not null))
             {
                 smthWasCompiled = true;
                 Console.WriteLine($"Compiling {fn}");
@@ -166,9 +193,35 @@ public static class Compiler
             }
             result
                 .AppendLine("section '.idata' import data readable writeable")
-                .AppendLine("library kernel32,'kernel32.dll', user32, 'user32.dll'")
-                .AppendLine("include 'api\\kernel32.inc'")
-                .AppendLine("include 'api\\user32.inc'");
+                .Append("library kernel32,'kernel32.dll', user32, 'user32.dll'");
+            if (imports.Count > 0)
+            {
+                result.Append(", ");
+                foreach (var (import, i) in imports.Select((x, i) => (x, i)))
+                {
+                    result.Append("dll").Append(i).Append(',').Append("'").Append(import.Dll).Append("'");
+                    if (i < imports.Count - 1)
+                        result.Append(',');
+                }
+                result.AppendLine();
+                foreach (var (import, i) in imports.Select((x, i) => (x, i)).Where(x => x.x.Imports.Count > 0))
+                {
+                    result.Append("import ").Append("dll").Append(i);
+                    foreach (var fn in import.Imports)
+                    {
+                        var name = fn.Name + string.Join('_', fn.Parameters.Select(x => x.Type)).Replace("*", "ptr");
+                        result.Append(", ").Append(name).Append(", '").Append(fn.ImportName ?? fn.Name).Append("'");
+                    }
+                    if(i < imports.Count - 1)
+                        result.AppendLine();
+                }
+                result.AppendLine();
+            }
+            else 
+            {
+                result.AppendLine();
+            }
+            result.AppendLine("import kernel32, ExitProcess, 'ExitProcess'");
         }
         else
         {
@@ -237,7 +290,7 @@ public static class Compiler
                 GenerateTypeInfo(ref ctx, field.Type, sb, generated);
             }
             sb.AppendLine($"__fields_of_{type.Name}:");
-            foreach(var (fldname, field) in custom.Fields)
+            foreach (var (fldname, field) in custom.Fields)
             {
                 var namestr = ctx.NewStr(fldname);
                 sb.AppendLine($"__field_{type.Name}_{fldname} dq {namestr}, __type_{field.Type.Name.Replace("*", "ptr")}, {field.Offset}");
@@ -794,11 +847,11 @@ public static class Compiler
             var objptr = GetField(objref, obj.Type, (obj.Type as CustomTypeInfo).Fields["data"], ref fctx, ref ctx, instructions);
             var typeinfovar = fctx.NewTemp(new PtrTypeInfo(typeInfo));
             instructions.Add(new Instruction(Operation.Equals, objptr, null, typeinfovar));
-            SetField(typeinfovar,  typeInfo, typeInfo.Fields["name"], ctx.NewStr("ptr"), ref fctx, ref ctx, instructions);
-            SetField(typeinfovar,  typeInfo, typeInfo.Fields["size"], new Constant<long>(8, ctx.U64), ref fctx, ref ctx, instructions);
-            SetField(typeinfovar,  typeInfo, typeInfo.Fields["field_count"], new Constant<long>(0, ctx.U64), ref fctx, ref ctx, instructions);
-            SetField(typeinfovar,  typeInfo, typeInfo.Fields["underlaying"], underType, ref fctx, ref ctx, instructions);
-            SetField(typeinfovar,  typeInfo, typeInfo.Fields["id"], new Constant<long>(-1, ctx.I64), ref fctx, ref ctx, instructions);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["name"], ctx.NewStr("ptr"), ref fctx, ref ctx, instructions);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["size"], new Constant<long>(8, ctx.U64), ref fctx, ref ctx, instructions);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["field_count"], new Constant<long>(0, ctx.U64), ref fctx, ref ctx, instructions);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["underlaying"], underType, ref fctx, ref ctx, instructions);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["id"], new Constant<long>(-1, ctx.I64), ref fctx, ref ctx, instructions);
             return typeinfovar;
         }
         else
@@ -840,7 +893,7 @@ public static class Compiler
         allocatefn.WasUsed = true;
         var obj = fctx.NewTemp(objtype);
         var typeofexpr = CompileTypeOf(type, ref fctx, ref ctx, instructions);
-        instructions.Add(new FnCallInstruction(allocatefn, new List<Source>() { new Constant<long>(type.Size, ctx.U64), typeofexpr}, obj));
+        instructions.Add(new FnCallInstruction(allocatefn, new List<Source>() { new Constant<long>(type.Size, ctx.U64), typeofexpr }, obj));
         var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
         instructions.Add(new Instruction(Operation.Ref, obj, null, objref));
         var objdata = GetField(objref, objtype, objtype.Fields["data"], ref fctx, ref ctx, instructions);

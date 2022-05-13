@@ -131,11 +131,7 @@ fn nextrnd() : i32
 fn main()
 {
     set_start();
-    asm 
-    {
-        invoke GetTickCount
-        mov qword[seed], rax
-    }
+    seed = GetTickCount();
     let size = new Size();
     size.x = 30;
     size.y = 20;
@@ -152,19 +148,14 @@ fn main()
 }
 fn read(): char 
 {
+    
+    let buff: *char = null;
     asm 
     {
-        invoke GetStdHandle, STD_INPUT_HANDLE
-        mov r13, rax
         sub rsp, 16
-        mov r10, rsp
-        mov r11, 1
-        sub rsp, 16
-        mov r12, rsp
-        invoke ReadConsoleA, rax, r10, r11, r12, 0
-        mov al, byte[rsp + 16]
-        leave
-        ret
+        mov [rbp - 8], rsp
     }
-    ret 0;
+    let readed: u32 = 0;
+    ReadConsoleA(GetStdHandle(-10), buff, 1, &a, null);
+    ret buff[0];
 }

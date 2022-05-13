@@ -62,20 +62,3 @@ fn writef(fmt: *char, data: **void)
 {
     writestr(format(fmt, data));
 }
-fn displ(l: *List) 
-{
-    let builder = new StringBuilder();
-    let i: u64 = 0;
-    while i < l.count 
-    {
-        writenum(i);
-        builder.append('#').append(i).append(": ", 2);
-        builder.append(format_obj(l.data[i])).endl();
-        i = i + 1;
-    }
-    builder.write();
-}
-fn main() 
-{
-    writestr(format("LOL % %\r\n", arr(box 5).add(box "fuck"))); 
-}
