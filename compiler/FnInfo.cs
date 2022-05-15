@@ -12,9 +12,10 @@ public class FnInfo
     public TypeInfo RetType { get; private set; }
     public Statement? Body { get; private set; }
     public CallingConvention CallingConvention { get; private set; }
-    public FnInfo(string name, List<(string name, TypeInfo type)> @params, TypeInfo retType, Statement? body, CallingConvention cconv = default)
+    public bool IsExtern { get; private set; }
+    public FnInfo(string name, List<(string name, TypeInfo type)> @params, TypeInfo retType, Statement? body, CallingConvention cconv = default, bool isextern = false)
     {
-        (Name, Params, RetType, Body, CallingConvention) = (name, @params, retType, body, cconv);
+        (Name, Params, RetType, Body, CallingConvention, IsExtern) = (name, @params, retType, body, cconv, isextern);
         NameInAsm = Name + string.Join('_', @params.Select(x => x.type)).Replace("*", "ptr");
     }
     public override string ToString()

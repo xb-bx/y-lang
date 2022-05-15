@@ -28,6 +28,8 @@ public static class Lexer
         "dllimport",
         "extern",
         "from",
+        "Y",
+        "WindowsX64",
     };
     private static readonly HashSet<char> brackets = new()
     {

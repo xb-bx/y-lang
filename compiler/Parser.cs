@@ -145,6 +145,9 @@ public static class Parser
 
     private static Statement DllImport(ref Context ctx, Position pos)
     {
+        var cconv = CallingConvention.Windows64;
+        if(ctx.Match(MatchGroup.MatchKeyword("Y").OrKeyword("WindowsX64"), out var conv))
+            cconv = Enum.Parse<CallingConvention>(conv.Value);
         var dllname = ctx.ForceMatch(MatchGroup.Match(TokenType.String));
         var imports = new List<ExternFunctionDefinition>();
         ctx.ForceMatch(MatchGroup.LBRC);
@@ -152,7 +155,7 @@ public static class Parser
         {
             imports.Add(ExternFn(ref ctx));
         }
-        return new DllImportStatement(dllname.Value, imports, dllname.File, pos);
+        return new DllImportStatement(dllname.Value, imports, dllname.File, pos, cconv);
     }
 
     private static ExternFunctionDefinition ExternFn(ref Context ctx)

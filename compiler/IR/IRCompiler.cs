@@ -34,7 +34,7 @@ public class IRCompiler
             lines.Add("push rbp");
             lines.Add("mov rbp, rsp");
             if (localsSize > 0)
-                lines.Add($"sub rsp, {localsSize}");
+                lines.Add($"sub rsp, {localsSize + (localsSize % 16 == 0 ? 8 : 0)}");
             if (offset < 0)
             {
                 lines.Add("mov rax, rbp");
@@ -84,7 +84,7 @@ public class IRCompiler
                         {
                             if(fncall.Args.Count > 4)
                             {
-                                foreach(var arg in fncall.Args.Skip(4))
+                                foreach(var arg in fncall.Args.Skip(4).Reverse())
                                 {
                                     if(arg is Variable v)
                                         lines.Add($"push qword{v.ToAsm()}");
@@ -97,7 +97,10 @@ public class IRCompiler
                             {
                                 lines.Add($"mov {firstFourArgsWinx64[i]}, {(arg is Variable v ? v.ToAsm() : arg)}");
                             } 
-                            lines.Add($"call [{fncall.Fn.NameInAsm}]");
+                            if(fncall.Fn.IsExtern)
+                                lines.Add($"call [{fncall.Fn.NameInAsm}]");
+                            else 
+                                lines.Add($"call {fncall.Fn.NameInAsm}");
                             lines.Add($"add rsp, {(fncall.Args.Count < 4 ? 32 : 32 + (fncall.Args.Count - 4) * 8)}");
                             if(fncall.Dest is not null)
                             {
@@ -132,7 +135,10 @@ public class IRCompiler
                                 {
                                     lines.Add($"push {arg}");
                                 }
-                            lines.Add($"call {fncall.Fn.NameInAsm}");
+                            if(fncall.Fn.IsExtern)
+                                lines.Add($"call [{fncall.Fn.NameInAsm}]");
+                            else 
+                                lines.Add($"call {fncall.Fn.NameInAsm}");
                             if (fncall.Dest is not null)
                             {
                                 if (fncall.Dest.Type.Size > 8)

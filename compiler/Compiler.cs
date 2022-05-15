@@ -116,7 +116,7 @@ public static class Compiler
                     ctx.Errors.Add(new Error($"Undefined type {fn.ReturnType}", fn.File, fn.ReturnType!.Pos));
                     retType = ctx.Types["void"];
                 }
-                ctx.Fns.Add(new FnInfo(name, parameters, retType, null, CallingConvention.Windows64));
+                ctx.Fns.Add(new FnInfo(name, parameters, retType, null, import.CallingConvention, true));
             }
         }
         if (fns.Count == 0)
