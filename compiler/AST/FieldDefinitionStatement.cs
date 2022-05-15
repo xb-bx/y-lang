@@ -1,6 +1,15 @@
 namespace YLang.AST;
+public abstract class FieldDefinitionStatementBase : Statement 
+{
 
-public class FieldDefinitionStatement : Statement 
+}
+public class UnionDefinitionStatement : FieldDefinitionStatementBase
+{
+    public List<FieldDefinitionStatement> Fields;
+    public UnionDefinitionStatement(List<FieldDefinitionStatement> fields, string file, Position pos)
+        => (Fields, Pos, File) = (fields, pos, file);
+}
+public class FieldDefinitionStatement : FieldDefinitionStatementBase 
 {
     public string Name { get; private set; }
     public TypeExpression Type { get; private set; }

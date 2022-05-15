@@ -191,12 +191,12 @@ public static class Parser
     {
         var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
         ctx.ForceMatch(MatchGroup.LBRC);
-        var fields = new List<FieldDefinitionStatement>();
+        var fields = new List<FieldDefinitionStatementBase>();
         var constructors = new List<ConstructorDefinitionStatement>();
         var functions = new List<FnDefinitionStatement>();
         while (!ctx.Match(MatchGroup.RBRC, out _))
         {
-            var token = ctx.ForceMatch(MatchGroup.MatchKeyword("constructor").Or(TokenType.Id).OrKeyword("fn"));
+            var token = ctx.ForceMatch(MatchGroup.MatchKeyword("constructor").OrKeyword("union").Or(TokenType.Id).OrKeyword("fn"));
             Console.WriteLine($"STRUCT: {token}");
             switch (token)
             {
@@ -209,6 +209,15 @@ public static class Parser
                     break;
                 case { Type: TokenType.Keyword, Value: "fn", Pos: var position }:
                     functions.Add(ParseFunction(ref ctx, position));
+                    break;
+                case { Type: TokenType.Keyword, Value: "union", Pos: var unionpos, File: var unionfile }:
+                    var unionfields = new List<FieldDefinitionStatement>();
+                    ctx.ForceMatch(MatchGroup.LBRC);
+                    while(!ctx.Match(MatchGroup.RBRC, out _))
+                    {
+                        unionfields.Add(Field(ref ctx));
+                    }
+                    fields.Add(new UnionDefinitionStatement(unionfields, unionfile, unionpos));
                     break;
             }
         }

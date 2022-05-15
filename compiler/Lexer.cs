@@ -30,6 +30,7 @@ public static class Lexer
         "from",
         "Y",
         "WindowsX64",
+        "union",
     };
     private static readonly HashSet<char> brackets = new()
     {

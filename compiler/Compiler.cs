@@ -212,12 +212,12 @@ public static class Compiler
                         var name = fn.Name + string.Join('_', fn.Parameters.Select(x => x.Type)).Replace("*", "ptr");
                         result.Append(", ").Append(name).Append(", '").Append(fn.ImportName ?? fn.Name).Append("'");
                     }
-                    if(i < imports.Count - 1)
+                    if (i < imports.Count - 1)
                         result.AppendLine();
                 }
                 result.AppendLine();
             }
-            else 
+            else
             {
                 result.AppendLine();
             }
@@ -323,17 +323,38 @@ public static class Compiler
         {
             var fields = new Dictionary<string, FieldInfo>();
             int offset = 0;
-            foreach (var field in structt.Fields)
+            foreach (var sfield in structt.Fields)
             {
-                var type = ctx.GetTypeInfo(field.Type);
-                if (type is null)
+                if (sfield is FieldDefinitionStatement field)
                 {
-                    ctx.Errors.Add(new Error($"Unknown type {field.Type}", field.File, field.Type.Pos));
+                    var type = ctx.GetTypeInfo(field.Type);
+                    if (type is null)
+                    {
+                        ctx.Errors.Add(new Error($"Unknown type {field.Type}", field.File, field.Type.Pos));
+                    }
+                    else
+                    {
+                        fields.Add(field.Name, new FieldInfo(offset, type));
+                        offset += type.Size;
+                    }
                 }
-                else
+                else if (sfield is UnionDefinitionStatement union)
                 {
-                    fields.Add(field.Name, new FieldInfo(offset, type));
-                    offset += type.Size;
+                    int max = 0;
+                    foreach (var fld in union.Fields)
+                    {
+                        var type = ctx.GetTypeInfo(fld.Type);
+                        if (type is null)
+                        {
+                            ctx.Errors.Add(new Error($"Unknown type {fld.Type}", fld.File, fld.Type.Pos));
+                        }
+                        else
+                        {
+                            fields.Add(fld.Name, new FieldInfo(offset, type));
+                            max = type.Size > max ? type.Size : max;
+                        }
+                    }
+                    offset += max;
                 }
             }
             var ctors = new List<FnInfo>();
