@@ -45,9 +45,9 @@ struct VariadicChunks
     count: u64;
     constructor()
     {
-        this.chunks = cast(alloc(24*8), **VariadicChunk);
         this.size = 32;
         this.count = 0;
+        this.chunks = cast(alloc(8*this.size), **VariadicChunk);
     }
     fn add(size: u64, is_ref: bool, type: *TypeInfo): *VariadicChunk
     {
@@ -297,13 +297,14 @@ fn mark_chunks(chunks: *Chunks)
 }
 fn mark_stack() 
 {
-    let rsp: u64 = 0;
+    let rsp: u64 = 64;
     asm 
     {
         mov [rbp - 8], rsp
+        sub qword[rbp - 8], 256
     }
     let stack = ptr_as_num(stack_start);
-    while stack > rsp 
+    while stack >= rsp 
     {
         if mark_obj(*cast(stack, **u8), &small_chunks) {}
         else if mark_obj(*cast(stack, **u8), &mid_chunks) {}
@@ -353,9 +354,9 @@ fn mark_variadic(obj: *u8)
     while i < variadic_chunks.count 
     {
         let chunk = variadic_chunks.chunks[i]; 
-            let dataptr = ptr_as_num(chunk.data);
-            let ptr = ptr_as_num(obj);
-            if ptr == dataptr chunk.mark = 1;
+        let dataptr = ptr_as_num(chunk.data);
+        let ptr = ptr_as_num(obj);
+        if ptr == dataptr chunk.mark = 1;
         i = i + 1;
     }
 }
@@ -363,7 +364,8 @@ fn set_start()
 {
     asm 
     {
-        mov rax, [rsp]
+        mov rax, [rbp]
+        ;mov rax, [rax]
         mov qword[stack_start], rax
     }
 }

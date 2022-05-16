@@ -35,6 +35,8 @@ public class IRCompiler
             lines.Add("mov rbp, rsp");
             if (localsSize > 0)
                 lines.Add($"sub rsp, {localsSize + (localsSize % 16 == 0 ? 8 : 0)}");
+            else 
+                lines.Add($"sub rsp, 8");
             if (offset < 0)
             {
                 lines.Add("mov rax, rbp");
