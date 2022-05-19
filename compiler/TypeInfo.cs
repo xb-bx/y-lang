@@ -36,7 +36,12 @@ public class CustomTypeInfo : TypeInfo
             Size += 8 - (Size % 8);
     }
 }
-
+public class EnumInfo : TypeInfo 
+{ 
+    public Dictionary<string, int> Values { get; set; }
+    public EnumInfo(string name, Dictionary<string, int> values)
+        => (Name, Values, Size) = (name, values, 4);
+}
 public class FieldInfo 
 {
     public int Offset { get; private set; }

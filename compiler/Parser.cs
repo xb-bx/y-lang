@@ -101,7 +101,7 @@ public static class Parser
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
-            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("include").OrKeyword("struct").OrKeyword("dllimport"), out var t);
+            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("enum").OrKeyword("include").OrKeyword("struct").OrKeyword("dllimport"), out var t);
             Console.WriteLine($"{m} {t}");
             if (m)
             {
@@ -111,6 +111,7 @@ public static class Parser
                     case "let": res.Add(Let(ref ctx, t.Pos)); break;
                     case "struct": res.Add(Struct(ref ctx, t.Pos)); break;
                     case "dllimport": res.Add(DllImport(ref ctx, t.Pos)); break;
+                    case "enum": res.Add(EnumType(ref ctx, t.Pos)); break;
                     case "include":
                         {
                             var file = ctx.ForceMatch(MatchGroup.Match(TokenType.String), new Token { Type = TokenType.String, Value = "<undefined>" });
@@ -142,7 +143,32 @@ public static class Parser
         }
         return res;
     }
-
+    private static EnumDeclarationStatement EnumType(ref Context ctx, Position pos)
+    {
+        var values = new Dictionary<string, int>();
+        int valueCounter = 0;
+        var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+        ctx.ForceMatch(MatchGroup.LBRC);
+        while(!ctx.Match(MatchGroup.RBRC, out _))
+        {
+            var valueName = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+            int value = valueCounter++;
+            if(ctx.MatchOp("=", out _)) 
+            {
+                var expr = SimpleExpression(ref ctx);
+                if(expr is not IntegerExpression intexpr)
+                {
+                    ctx.Errors.Add(new Error("Enum's value can only be integer", expr.File, expr.Pos));
+                    continue;
+                }
+                value = valueCounter = (int)intexpr.Value;
+                valueCounter++;
+            }
+            values.Add(valueName.Value, value);
+            ctx.Match(TokenType.Comma, out _);
+        }
+        return new EnumDeclarationStatement(name.Value, values, name.File, pos);
+    }
     private static Statement DllImport(ref Context ctx, Position pos)
     {
         var cconv = CallingConvention.Windows64;

@@ -73,6 +73,8 @@ public static class Compiler
         var globals = statements.OfType<LetStatement>().ToList();
         var structs = statements.OfType<StructDefinitionStatement>().ToList();
         var imports = statements.OfType<DllImportStatement>().ToList();
+        var enums = statements.OfType<EnumDeclarationStatement>().ToList();
+        AddEnums(ref ctx, enums);
         AddStructs(structs, ref ctx);
         var globalctx = new FunctionContext();
         globalctx.NewVar("__globals_start", ctx.Void);
@@ -250,6 +252,18 @@ public static class Compiler
         }
         File.WriteAllText(output, result.ToString());
         return ctx.Errors;
+    }
+    private static void AddEnums(ref Context context, List<EnumDeclarationStatement> enums)
+    {
+        foreach (var enumDecl in enums)
+        {
+            if (context.Types.ContainsKey(enumDecl.Name))
+            {
+                context.Errors.Add(new Error($"Type {enumDecl.Name} already declared", enumDecl.File, enumDecl.Pos));
+                continue;
+            }
+            context.Types.Add(enumDecl.Name, new EnumInfo(enumDecl.Name, enumDecl.Values));
+        }
     }
     private static void Optimize(List<InstructionBase> instrs, int optimization = 8)
     {
@@ -964,33 +978,55 @@ public static class Compiler
     }
     private static Source CompileMember(MemberAccessExpression member, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
-        var type = InferExpressionType(member, ref fctx, ref ctx, null);
-        var memberexprtype = InferExpressionType(member.Expr, ref fctx, ref ctx, null);
-        FieldInfo field = null!;
-
-        var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
-        if (memberexprtype is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo custom && custom.Fields.TryGetValue(member.MemberName, out field))
+        if (member.Expr is VariableExpression vvar && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null)
         {
-            var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
-            var res = fctx.NewTemp(field.Type);
-            var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
-            instructions.Add(new Instruction(Operation.Equals, src, null, temp));
-            instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
-            instructions.Add(new Instruction(Operation.Deref, tempr, null, res));
-            return res;
+            if (ctx.Types.TryGetValue(vvar.Name, out TypeInfo type) && type is EnumInfo enumInfo)
+            {
+                if (!enumInfo.Values.TryGetValue(member.MemberName, out int val))
+                {
+                    ctx.Errors.Add(new Error($"Enum {enumInfo.Name} does not contains value '{member.MemberName}'", member.File, member.Pos));
+                }
+                else
+                {
+                    return new Constant<long>(val, enumInfo);
+                }
+            }
+            else
+            {
+                ctx.Errors.Add(new Error($"Unknown enum {vvar.Name}", vvar.File, vvar.Pos));
+            }
+            return new Constant<long>(0, ctx.I32);
         }
-        else if (((memberexprtype as CustomTypeInfo)?.Fields.TryGetValue(member.MemberName, out field) == true))
+        else
         {
+            var type = InferExpressionType(member, ref fctx, ref ctx, null);
+            var memberexprtype = InferExpressionType(member.Expr, ref fctx, ref ctx, null);
+            FieldInfo field = null!;
 
-            var tempref = fctx.NewTemp(type);
-            var res = fctx.NewTemp(type);
-            var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
-            instructions.Add(new Instruction(Operation.Ref, src, null, temp));
-            instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempref));
-            instructions.Add(new Instruction(Operation.Deref, tempref, null, res));
-            return res;
+            var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
+            if (memberexprtype is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo custom && custom.Fields.TryGetValue(member.MemberName, out field))
+            {
+                var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
+                var res = fctx.NewTemp(field.Type);
+                var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
+                instructions.Add(new Instruction(Operation.Equals, src, null, temp));
+                instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
+                instructions.Add(new Instruction(Operation.Deref, tempr, null, res));
+                return res;
+            }
+            else if (((memberexprtype as CustomTypeInfo)?.Fields.TryGetValue(member.MemberName, out field) == true))
+            {
+
+                var tempref = fctx.NewTemp(type);
+                var res = fctx.NewTemp(type);
+                var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
+                instructions.Add(new Instruction(Operation.Ref, src, null, temp));
+                instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempref));
+                instructions.Add(new Instruction(Operation.Deref, tempref, null, res));
+                return res;
+            }
+            return new Constant<long>(0, ctx.Void);
         }
-        return new Constant<long>(0, ctx.Void);
     }
 
     private static Source CompileNew(NewObjExpression newobj, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
@@ -1360,19 +1396,41 @@ public static class Compiler
                 }
             case MemberAccessExpression member:
                 {
-                    var type = InferExpressionType(member.Expr, ref fctx, ref ctx, null);
-                    if (type is CustomTypeInfo custom && custom.Fields.TryGetValue(member.MemberName, out var fld))
+                    if (member.Expr is VariableExpression vvar && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null)
                     {
-                        return fld.Type is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : fld.Type;
-                    }
-                    else if (type is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo cust && cust.Fields.TryGetValue(member.MemberName, out var f))
-                    {
-                        return f.Type is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : f.Type;
+                        if (ctx.Types.TryGetValue(vvar.Name, out TypeInfo type) && type is EnumInfo enumInfo)
+                        {
+                            if (!enumInfo.Values.TryGetValue(member.MemberName, out _))
+                            {
+                                ctx.Errors.Add(new Error($"Enum {enumInfo.Name} does not contains value '{member.MemberName}'", member.File, member.Pos));
+                            }
+                            if (target?.Equals(ctx.I32) is true)
+                                return ctx.I32;
+                            else
+                                return enumInfo;
+                        }
+                        else
+                        {
+                            ctx.Errors.Add(new Error($"Unknown enum {vvar.Name}", vvar.File, vvar.Pos));
+                            return ctx.I32;
+                        }
                     }
                     else
                     {
-                        ctx.Errors.Add(new Error($"Type {type} does not has member {member.MemberName}", member.File, member.Pos));
-                        return ctx.Void;
+                        var type = InferExpressionType(member.Expr, ref fctx, ref ctx, null);
+                        if (type is CustomTypeInfo custom && custom.Fields.TryGetValue(member.MemberName, out var fld))
+                        {
+                            return fld.Type is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : fld.Type;
+                        }
+                        else if (type is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo cust && cust.Fields.TryGetValue(member.MemberName, out var f))
+                        {
+                            return f.Type is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : f.Type;
+                        }
+                        else
+                        {
+                            ctx.Errors.Add(new Error($"Type {type} does not has member {member.MemberName}", member.File, member.Pos));
+                            return ctx.Void;
+                        }
                     }
                 }
             case MethodCallExpression method:
