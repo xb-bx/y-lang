@@ -156,6 +156,6 @@ fn read(): char
         mov [rbp - 8], rsp
     }
     let readed: u32 = 0;
-    ReadConsoleA(GetStdHandle(-10), buff, 1, &a, null);
+    ReadConsoleA(GetStdHandle(-10), buff, 1, &readed, null);
     ret buff[0];
 }

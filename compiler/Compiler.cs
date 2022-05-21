@@ -978,7 +978,9 @@ public static class Compiler
     }
     private static Source CompileMember(MemberAccessExpression member, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
-        if (member.Expr is VariableExpression vvar && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null)
+        if (member.Expr is VariableExpression vvar 
+                && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null
+                && ctx.Globals.FirstOrDefault(x => x.Name == vvar.Name) is null)
         {
             if (ctx.Types.TryGetValue(vvar.Name, out TypeInfo type) && type is EnumInfo enumInfo)
             {
@@ -1396,7 +1398,9 @@ public static class Compiler
                 }
             case MemberAccessExpression member:
                 {
-                    if (member.Expr is VariableExpression vvar && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null)
+                    if (member.Expr is VariableExpression vvar 
+                            && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null
+                            && ctx.Globals.FirstOrDefault(x => x.Name == vvar.Name) is null)
                     {
                         if (ctx.Types.TryGetValue(vvar.Name, out TypeInfo type) && type is EnumInfo enumInfo)
                         {

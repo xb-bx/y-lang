@@ -365,7 +365,6 @@ fn set_start()
     asm 
     {
         mov rax, [rbp]
-        ;mov rax, [rax]
         mov qword[stack_start], rax
     }
 }
@@ -499,11 +498,4 @@ fn new_obj(size: u64, type: *TypeInfo): Obj
 fn new_array(size: u64, elem_type: *TypeInfo): Obj
 {
     ret new_variadic(size, false, elem_type);
-}
-fn gc_init() 
-{
-    asm 
-    {
-        mov [stack_start], rsp
-    }
 }
