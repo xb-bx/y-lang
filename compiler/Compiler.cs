@@ -182,6 +182,7 @@ public static class Compiler
                 .AppendLine("__start:")
                 .AppendLine(string.Join('\n', globalsinit))
                 .AppendLine("call main")
+                .AppendLine("sub rsp, 8")
                 .AppendLine("invoke ExitProcess, 0")
                 .AppendLine(string.Join('\n', res));
             if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)

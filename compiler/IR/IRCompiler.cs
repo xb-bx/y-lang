@@ -84,6 +84,8 @@ public class IRCompiler
                     {
                         if (fncall.Fn.CallingConvention == CallingConvention.Windows64)
                         {
+                            var adding = fncall.Args.Count > 4 && fncall.Args.Count % 2 != 0 ? 8 : 0;
+                            if(adding > 0) lines.Add("push 0");
                             if(fncall.Args.Count > 4)
                             {
                                 foreach(var arg in fncall.Args.Skip(4).Reverse())
@@ -94,7 +96,7 @@ public class IRCompiler
                                         lines.Add($"push {arg}");
                                 }    
                             }
-                            lines.Add("sub rsp, 32");
+                            lines.Add($"sub rsp, 32");
                             foreach(var (arg, i) in fncall.Args.Take(4).Select((x, i) => (x, i)))
                             {
                                 lines.Add($"mov {firstFourArgsWinx64[i]}, {(arg is Variable v ? v.ToAsm() : arg)}");
@@ -103,7 +105,7 @@ public class IRCompiler
                                 lines.Add($"call [{fncall.Fn.NameInAsm}]");
                             else 
                                 lines.Add($"call {fncall.Fn.NameInAsm}");
-                            lines.Add($"add rsp, {(fncall.Args.Count < 4 ? 32 : 32 + (fncall.Args.Count - 4) * 8)}");
+                            lines.Add($"add rsp, {(fncall.Args.Count < 4 ? 32 : 32 + (fncall.Args.Count - 4) * 8) + adding}");
                             if(fncall.Dest is not null)
                             {
                                 lines.Add($"mov qword{fncall.Dest.ToAsm()}, rax");
