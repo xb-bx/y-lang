@@ -28,8 +28,9 @@ public static class Lexer
         "dllimport",
         "extern",
         "from",
-        "Y",
+        "YLang",
         "WindowsX64",
+        "interface",
         "union",
         "enum",
     };

@@ -11,4 +11,14 @@ public class FnCallInstruction : InstructionBase
         => $"{Dest} = call ({Fn})({string.Join(", ", Args)})";
 }
 
-
+public class InterfaceCall : InstructionBase 
+{
+    public InterfaceInfo Interface { get; private set; }
+    public InterfaceMethod Method { get; private set; }
+    public List<Source> Args { get; private set; }
+    public Variable? Dest { get; set; }
+    public InterfaceCall(InterfaceInfo interf, InterfaceMethod method, List<Source> args, Variable? dest)
+        => (Interface, Method, Args, Dest) = (interf, method, args, dest);
+    public override string ToString()
+        => $"{Dest} = call {Interface.Name}.{Method.Name}({string.Join(",", Args)})";
+}

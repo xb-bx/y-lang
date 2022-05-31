@@ -2,7 +2,7 @@ namespace YLang.IR;
 
 public class IRCompiler
 {
-    private static string[] firstFourArgsWinx64 = new[] { "rcx", "rdx", "r8", "r9"};
+    private static string[] firstFourArgsWinx64 = new[] { "rcx", "rdx", "r8", "r9" };
     public static List<string> Compile(List<InstructionBase> instructions, List<Variable> vars, FnInfo? fn)
     {
         var lines = new List<string>();
@@ -35,7 +35,7 @@ public class IRCompiler
             lines.Add("mov rbp, rsp");
             if (localsSize > 0)
                 lines.Add($"sub rsp, {localsSize + (localsSize % 16 == 0 ? 8 : 0)}");
-            else 
+            else
                 lines.Add($"sub rsp, 8");
             if (offset < 0)
             {
@@ -80,33 +80,97 @@ public class IRCompiler
                         }
                     }
                     break;
+                case InterfaceCall icall:
+                    {
+
+                        if (icall.Method.RetType.Size > 8)
+                        {
+                            lines.Add($"sub rsp, {icall.Method.RetType.Size}");
+                        }
+                        foreach (var arg in icall.Args.Select(x => x).Reverse())
+                            if (arg is Variable v)
+                            {
+                                if (v.Type.Size > 8)
+                                {
+                                    lines.Add($"lea rax, {v.ToAsm(v.Type.Size - 8)}");
+                                    for (int i = 0; i < v.Type.Size; i += 8)
+                                    {
+                                        lines.Add($"push qword[rax]");
+                                        lines.Add($"sub rax, 8");
+                                    }
+
+                                }
+                                else
+                                {
+                                    lines.Add($"push qword{v.ToAsm()}");
+                                }
+                            }
+                            else
+                            {
+                                lines.Add($"push {arg}");
+                            }
+                        var thisvar = icall.Args[0] as Variable;
+                        lines.Add($"mov rax, qword{thisvar.ToAsm()}");
+                        lines.Add($"mov rax, [rax]");
+                        lines.Add($"mov rax, [rax + {icall.Interface.Number} * 8]");
+                        lines.Add($"lea rax, [rax + {icall.Method.Number} * 8]");
+                        lines.Add($"call qword[rax]");
+                        if (icall.Dest is not null)
+                        {
+                            if (icall.Dest.Type.Size > 8)
+                            {
+                                if (icall.Args.Count > 0)
+                                    lines.Add($"add rsp, {icall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
+
+                                for (int i = 0; i < icall.Dest.Type.Size; i += 8)
+                                {
+                                    lines.Add("pop rax");
+                                    lines.Add($"mov qword{icall.Dest.ToAsm(i)}, rax");
+                                }
+                            }
+                            else
+                            {
+                                lines.Add($"mov qword{icall.Dest.ToAsm()}, rax");
+                                if (icall.Args.Count > 0)
+                                    lines.Add($"add rsp, {icall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
+                            }
+                        }
+                        else
+                        {
+                            if (icall.Args.Count > 0)
+                                lines.Add($"add rsp, {icall.Args.Select(x => x.Type.Size < 8 ? 8 : x.Type.Size).Sum()}");
+                            if (icall.Method.RetType.Size > 8)
+                                lines.Add($"add rsp, {icall.Method.RetType.Size}");
+                        }
+                    }
+                    break;
                 case FnCallInstruction fncall:
                     {
                         if (fncall.Fn.CallingConvention == CallingConvention.Windows64)
                         {
                             var adding = fncall.Args.Count > 4 && fncall.Args.Count % 2 != 0 ? 8 : 0;
-                            if(adding > 0) lines.Add("push 0");
-                            if(fncall.Args.Count > 4)
+                            if (adding > 0) lines.Add("push 0");
+                            if (fncall.Args.Count > 4)
                             {
-                                foreach(var arg in fncall.Args.Skip(4).Reverse())
+                                foreach (var arg in fncall.Args.Skip(4).Reverse())
                                 {
-                                    if(arg is Variable v)
+                                    if (arg is Variable v)
                                         lines.Add($"push qword{v.ToAsm()}");
-                                    else 
+                                    else
                                         lines.Add($"push {arg}");
-                                }    
+                                }
                             }
                             lines.Add($"sub rsp, 32");
-                            foreach(var (arg, i) in fncall.Args.Take(4).Select((x, i) => (x, i)))
+                            foreach (var (arg, i) in fncall.Args.Take(4).Select((x, i) => (x, i)))
                             {
                                 lines.Add($"mov {firstFourArgsWinx64[i]}, {(arg is Variable v ? v.ToAsm() : arg)}");
-                            } 
-                            if(fncall.Fn.IsExtern)
+                            }
+                            if (fncall.Fn.IsExtern)
                                 lines.Add($"call [{fncall.Fn.NameInAsm}]");
-                            else 
+                            else
                                 lines.Add($"call {fncall.Fn.NameInAsm}");
                             lines.Add($"add rsp, {(fncall.Args.Count < 4 ? 32 : 32 + (fncall.Args.Count - 4) * 8) + adding}");
-                            if(fncall.Dest is not null)
+                            if (fncall.Dest is not null)
                             {
                                 lines.Add($"mov qword{fncall.Dest.ToAsm()}, rax");
                             }
@@ -139,9 +203,9 @@ public class IRCompiler
                                 {
                                     lines.Add($"push {arg}");
                                 }
-                            if(fncall.Fn.IsExtern)
+                            if (fncall.Fn.IsExtern)
                                 lines.Add($"call [{fncall.Fn.NameInAsm}]");
-                            else 
+                            else
                                 lines.Add($"call {fncall.Fn.NameInAsm}");
                             if (fncall.Dest is not null)
                             {

@@ -62,16 +62,16 @@ public sealed class MatchGroup
     public static MatchGroup MatchOp(string op)
         => Match(TokenType.Operator, op);
 
-    public static MatchGroup LP = Match(TokenType.Bracket, "(");
-    public static MatchGroup RP = Match(TokenType.Bracket, ")");
-    public static MatchGroup LBR = Match(TokenType.Bracket, "[");
-    public static MatchGroup RBR = Match(TokenType.Bracket, "]");
-    public static MatchGroup LBRC = Match(TokenType.Bracket, "{");
-    public static MatchGroup RBRC = Match(TokenType.Bracket, "}");
-    public static MatchGroup Dot = Match(TokenType.Dot);
-    public static MatchGroup Id = Match(TokenType.Id);
-    public static MatchGroup Colon = Match(TokenType.Colon);
-    public static MatchGroup Semicolon = Match(TokenType.Semicolon);
-    public static MatchGroup EQ = MatchOp("=");
+    public static MatchGroup LP => Match(TokenType.Bracket, "(");
+    public static MatchGroup RP => Match(TokenType.Bracket, ")");
+    public static MatchGroup LBR => Match(TokenType.Bracket, "[");
+    public static MatchGroup RBR => Match(TokenType.Bracket, "]");
+    public static MatchGroup LBRC => Match(TokenType.Bracket, "{");
+    public static MatchGroup RBRC => Match(TokenType.Bracket, "}");
+    public static MatchGroup Dot => Match(TokenType.Dot);
+    public static MatchGroup Id => Match(TokenType.Id);
+    public static MatchGroup Colon => Match(TokenType.Colon);
+    public static MatchGroup Semicolon => Match(TokenType.Semicolon);
+    public static MatchGroup EQ => MatchOp("=");
 }
 

@@ -101,7 +101,7 @@ public static class Parser
         var res = new List<Statement>();
         while (ctx.Pos < tokens.Count && tokens[ctx.Pos].Type != TokenType.EOF)
         {
-            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("enum").OrKeyword("include").OrKeyword("struct").OrKeyword("dllimport"), out var t);
+            var m = ctx.Match(MatchGroup.MatchKeyword("fn").OrKeyword("let").OrKeyword("enum").OrKeyword("include").OrKeyword("struct").OrKeyword("dllimport").OrKeyword("interface"), out var t);
             Console.WriteLine($"{m} {t}");
             if (m)
             {
@@ -112,6 +112,7 @@ public static class Parser
                     case "struct": res.Add(Struct(ref ctx, t.Pos)); break;
                     case "dllimport": res.Add(DllImport(ref ctx, t.Pos)); break;
                     case "enum": res.Add(EnumType(ref ctx, t.Pos)); break;
+                    case "interface": res.Add(Interface(ref ctx, t.Pos)); break;
                     case "include":
                         {
                             var file = ctx.ForceMatch(MatchGroup.Match(TokenType.String), new Token { Type = TokenType.String, Value = "<undefined>" });
@@ -143,20 +144,50 @@ public static class Parser
         }
         return res;
     }
+    private static InterfaceDefinitionStatement Interface(ref Context ctx, Position pos)
+    {
+        var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+        var functions = new List<FnDefinitionStatement>();
+        ctx.ForceMatch(MatchGroup.LBRC);
+        while (!ctx.Match(MatchGroup.RBRC, out _))
+        {
+            ctx.ForceMatch(MatchGroup.MatchKeyword("fn"));
+            var fnName = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+
+            var parameters = new List<Parameter>();
+            ctx.ForceMatch(MatchGroup.LP);
+            while (!ctx.Match(MatchGroup.RP, out _))
+            {
+                var pname = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
+                ctx.ForceMatch(MatchGroup.Colon);
+                var type = ParseType(ref ctx);
+                ctx.Match(MatchGroup.Match(TokenType.Comma), out var _);
+                parameters.Add(new Parameter(pname.Value, type));
+            }
+            TypeExpression? retType = null;
+            if (ctx.Match(MatchGroup.Colon, out _))
+            {
+                retType = ParseType(ref ctx);
+            }
+            ctx.ForceMatch(MatchGroup.Semicolon);
+            functions.Add(new FnDefinitionStatement(fnName.Value, parameters, retType, null, fnName.Pos, fnName.File));
+        }
+        return new InterfaceDefinitionStatement(name.Value, functions, name.File, pos);
+    }
     private static EnumDeclarationStatement EnumType(ref Context ctx, Position pos)
     {
         var values = new Dictionary<string, int>();
         int valueCounter = 0;
         var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
         ctx.ForceMatch(MatchGroup.LBRC);
-        while(!ctx.Match(MatchGroup.RBRC, out _))
+        while (!ctx.Match(MatchGroup.RBRC, out _))
         {
             var valueName = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
             int value = valueCounter++;
-            if(ctx.MatchOp("=", out _)) 
+            if (ctx.MatchOp("=", out _))
             {
                 var expr = SimpleExpression(ref ctx);
-                if(expr is not IntegerExpression intexpr)
+                if (expr is not IntegerExpression intexpr)
                 {
                     ctx.Errors.Add(new Error("Enum's value can only be integer", expr.File, expr.Pos));
                     continue;
@@ -172,7 +203,7 @@ public static class Parser
     private static Statement DllImport(ref Context ctx, Position pos)
     {
         var cconv = CallingConvention.Windows64;
-        if(ctx.Match(MatchGroup.MatchKeyword("Y").OrKeyword("WindowsX64"), out var conv))
+        if (ctx.Match(MatchGroup.MatchKeyword("YLang").OrKeyword("WindowsX64"), out var conv))
             cconv = Enum.Parse<CallingConvention>(conv.Value);
         var dllname = ctx.ForceMatch(MatchGroup.Match(TokenType.String));
         var imports = new List<ExternFunctionDefinition>();
@@ -205,7 +236,7 @@ public static class Parser
             retType = ParseType(ref ctx);
         }
         string? importname = null;
-        if(ctx.Match(MatchGroup.MatchKeyword("from"), out _))
+        if (ctx.Match(MatchGroup.MatchKeyword("from"), out _))
         {
             importname = ctx.ForceMatch(MatchGroup.Match(TokenType.String)).Value;
         }
@@ -216,7 +247,21 @@ public static class Parser
     private static Statement Struct(ref Context ctx, Position pos)
     {
         var name = ctx.ForceMatch(MatchGroup.Id, Token.UndefinedId);
-        ctx.ForceMatch(MatchGroup.LBRC);
+        var interfaces = new List<TypeExpression>();
+        if(ctx.Match(MatchGroup.Colon, out var colon))
+        {
+            while(!ctx.Match(MatchGroup.LBRC, out _))
+            {
+                var type = ParseType(ref ctx);
+                interfaces.Add(type);
+                ctx.Match(MatchGroup.Match(TokenType.Comma), out var _);
+            }
+
+        }
+        else 
+        {
+            ctx.ForceMatch(MatchGroup.LBRC);
+        }
         var fields = new List<FieldDefinitionStatementBase>();
         var constructors = new List<ConstructorDefinitionStatement>();
         var functions = new List<FnDefinitionStatement>();
@@ -239,7 +284,7 @@ public static class Parser
                 case { Type: TokenType.Keyword, Value: "union", Pos: var unionpos, File: var unionfile }:
                     var unionfields = new List<FieldDefinitionStatement>();
                     ctx.ForceMatch(MatchGroup.LBRC);
-                    while(!ctx.Match(MatchGroup.RBRC, out _))
+                    while (!ctx.Match(MatchGroup.RBRC, out _))
                     {
                         unionfields.Add(Field(ref ctx));
                     }
@@ -248,7 +293,7 @@ public static class Parser
             }
         }
 
-        return new StructDefinitionStatement(name.Value, fields, constructors, functions, name.Pos, name.File);
+        return new StructDefinitionStatement(name.Value, fields, constructors, functions, interfaces, name.Pos, name.File);
     }
     private static ConstructorDefinitionStatement Constructor(ref Context ctx)
     {
@@ -295,7 +340,7 @@ public static class Parser
             retType = ParseType(ref ctx);
         }
         var body = Statement(ref ctx);
-        return new FnDefinitionStatement(name.Value, parameters, retType, body, pos);
+        return new FnDefinitionStatement(name.Value, parameters, retType, body, pos, body.File);
     }
     private static Statement Statement(ref Context ctx)
     {

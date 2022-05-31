@@ -23,9 +23,10 @@ public class CustomTypeInfo : TypeInfo
     public Dictionary<string, FieldInfo> Fields {get; set; }
     public List<FnInfo> Constructors { get; set;}
     public List<FnInfo> Methods { get; set; }
-    public CustomTypeInfo(string name, Dictionary<string, FieldInfo> fields, List<FnInfo> ctors, List<FnInfo> methods)
+    public List<InterfaceInfo> Interfaces { get; set; }
+    public CustomTypeInfo(string name, Dictionary<string, FieldInfo> fields, List<FnInfo> ctors, List<FnInfo> methods, List<InterfaceInfo> interfaces)
     {
-        (Name, Fields, Constructors, Methods) = (name, fields, ctors, methods);
+        (Name, Fields, Constructors, Methods, Interfaces) = (name, fields, ctors, methods, interfaces);
         RecomputeSize();
     }
     public void RecomputeSize()
@@ -50,4 +51,20 @@ public class FieldInfo
         => (Offset, Type) = (offset, type);
 }
 
+public class InterfaceInfo : TypeInfo 
+{
+    public List<InterfaceMethod> Methods { get; private set; }
+    public int Number { get; private set; }
+    public InterfaceInfo(string name, List<InterfaceMethod> methods, int num)
+        => (Name, Methods, Number, Size) = (name, methods, num, 0);
+}
 
+public class InterfaceMethod
+{
+    public string Name { get; private set; }
+    public List<(string name, TypeInfo type)> Params { get; private set; }
+    public int Number { get; private set; } 
+    public TypeInfo RetType { get; private set; }
+    public InterfaceMethod(string name, List<(string name, TypeInfo type)> @params, TypeInfo retType, int num)
+        => (Name, Params, RetType, Number) = (name, @params, retType, num);
+}
