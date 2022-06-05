@@ -128,7 +128,9 @@ public static class Compiler
             }
         }
         if (fns.Count == 0)
+        {
             return new();
+        }
         AddFunctions(ref ctx, fns);
         var res = new List<string>();
         List<(List<Variable>, FnInfo)> compiledfns = new();
@@ -137,6 +139,11 @@ public static class Compiler
         {
             ctx.Errors.Add(new Error("No entry point", ctx.Fns.FirstOrDefault()?.Body?.File ?? "<source>", new Position()));
             return ctx.Errors;
+        }
+        var chartype = ctx.Char;
+        if(settings.NullChecks && ctx.Fns.FirstOrDefault(x => x.Name == "writestr" && x.Params.Count == 1 && x.Params[0].type.Equals(new PtrTypeInfo(chartype))) is FnInfo writestrfn)
+        {
+            writestrfn.WasUsed = true;
         }
         main.WasUsed = true;
         bool smthWasCompiled = true;
@@ -172,9 +179,9 @@ public static class Compiler
             fctx.Info = fn;
             if (settings.Optimize && fn.Compiled is not null)
                 Optimize(fn.Compiled);
-            res.AddRange(IRCompiler.Compile(fn.Compiled, vars, fn));
+            res.AddRange(new IRCompiler(settings.NullChecks, fn.Compiled, vars, fn, ctx.StringConstants).Compile());
         }
-        var globalsinit = IRCompiler.Compile(instrs, new(), null!);
+        var globalsinit = new IRCompiler(settings.NullChecks, instrs, new(), null!, ctx.StringConstants).Compile();
         var result = new StringBuilder();
         if (settings.Target is Target.Windows)
         {
@@ -189,8 +196,19 @@ public static class Compiler
                 .AppendLine(string.Join('\n', globalsinit))
                 .AppendLine("call main")
                 .AppendLine("sub rsp, 8")
-                .AppendLine("invoke ExitProcess, 0")
-                .AppendLine(string.Join('\n', res));
+                .AppendLine("__exitprog:")
+                .AppendLine("invoke ExitProcess, 0");
+                if(settings.NullChecks)
+                result
+                    .AppendLine("__nre:")
+                    .AppendLine("push rdx")
+                    .AppendLine("push rcx")
+                    .AppendLine("call writestrptrchar")
+                    .AppendLine("add rsp, 8")
+                    .AppendLine("call writestrptrchar")
+                    .AppendLine("add rsp, 8")
+                    .AppendLine("jmp __exitprog");
+                result.AppendLine(string.Join('\n', res));
             if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
             {
                 result.AppendLine("section '.data' data readable writable");
@@ -360,24 +378,6 @@ public static class Compiler
     }
     private static void Optimize(List<InstructionBase> instrs, int optimization = 8)
     {
-        for (int opt = 0; opt < optimization; opt++)
-            for (int i = 0; i < instrs.Count; i++)
-            {
-                if (instrs[i] is Instruction instr)
-                {
-                    if (i + 1 < instrs.Count && instrs[i + 1] is Instruction other && other.Op is Operation.Equals && other.First is Variable fst && fst.Name == instr.Destination.Name && fst.Type.Size == instr.Destination.Type.Size)
-                    {
-                        instrs[i] = new Instruction(instr.Op, instr.First, instr.Second, other.Destination);
-                        instrs.RemoveAt(i + 1);
-                        i--;
-                    }
-                    else if (instr.Op is Operation.Index && instr.Second is Constant<long> v && v.Value == 0)
-                    {
-                        instrs[i] = new Instruction(Operation.Deref, instr.First, null, instr.Destination);
-                    }
-                }
-
-            }
     }
     private static void GenerateTypeInfos(ref Context ctx, StringBuilder sb)
     {
@@ -619,8 +619,8 @@ public static class Compiler
                 var thisvar = fctx.Variables.First(x => x.Name == "this");    
                 var vtable = ctx.Globals.First(x => x.Name == $"@vtable_{struc.Name}");
                 var vtableref = fctx.NewTemp(new PtrTypeInfo(vtable.Type));
-                res.Add(new Instruction(Operation.Ref, vtable, null, vtableref));
-                SetField(thisvar, struc, struc.Fields["@vtable"], vtableref, ref fctx, ref ctx, res);
+                res.Add(new Instruction(Operation.Ref, vtable, null, vtableref, info.Body.File, info.Body.Pos));
+                SetField(thisvar, struc, struc.Fields["@vtable"], vtableref, ref fctx, ref ctx, res, info.Body.File, info.Body.Pos);
             }
         }
         CompileStatement(ref fctx, ref ctx, info.Body, res);
@@ -657,14 +657,14 @@ public static class Compiler
                     }
                     var res = CompileExpression(let.Value, ref fctx, ref ctx, instructions, valueType);
                     var varr = fctx.NewVar(let.Name, letType);
-                    instructions.Add(new Instruction(Operation.Equals, res, null, varr));
+                    instructions.Add(new Instruction(Operation.Equals, res, null, varr, let.File, let.Pos));
                 }
                 else
                 {
                     var valueType = InferExpressionType(let.Value, ref fctx, ref ctx, null);
                     var res = CompileExpression(let.Value, ref fctx, ref ctx, instructions, valueType);
                     var varr = fctx.NewVar(let.Name, valueType);
-                    instructions.Add(new Instruction(Operation.Equals, res, null, varr));
+                    instructions.Add(new Instruction(Operation.Equals, res, null, varr, let.File, let.Pos));
                 }
                 break;
             case AssignStatement ass:
@@ -684,7 +684,7 @@ public static class Compiler
                                 );
                             }
                             var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, v.Type);
-                            instructions.Add(new Instruction(Operation.Equals, res, null, v));
+                            instructions.Add(new Instruction(Operation.Equals, res, null, v, ass.File, ass.Pos));
                         }
                         else
                         {
@@ -701,7 +701,7 @@ public static class Compiler
                         }
                         var res = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, valueType);
                         var destexpr = CompileExpression(deref.Expr, ref fctx, ref ctx, instructions, null) as Variable;
-                        instructions.Add(new Instruction(Operation.SetRef, res, null, destexpr));
+                        instructions.Add(new Instruction(Operation.SetRef, res, null, destexpr, deref.File, deref.Pos));
                     }
                     else if (ass.Expr is IndexExpression index)
                     {
@@ -719,7 +719,7 @@ public static class Compiler
 
                         var refr = CompileRefOf(index, ref fctx, ref ctx, instructions);
                         var value = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, valueType);
-                        instructions.Add(new Instruction(Operation.SetRef, value, null, refr));
+                        instructions.Add(new Instruction(Operation.SetRef, value, null, refr, index.File, index.Pos));
                     }
                     else if (ass.Expr is MemberAccessExpression member)
                     {
@@ -735,7 +735,7 @@ public static class Compiler
                         }
                         var refr = CompileRefOf(member, ref fctx, ref ctx, instructions);
                         var value = CompileExpression(ass.Value, ref fctx, ref ctx, instructions, valueType);
-                        instructions.Add(new Instruction(Operation.SetRef, value, null, refr));
+                        instructions.Add(new Instruction(Operation.SetRef, value, null, refr, member.File, member.Pos));
                     }
                 }
                 break;
@@ -763,7 +763,7 @@ public static class Compiler
                         }
                         ls.Add(sb.ToString());
                     }
-                    instructions.Add(new InlineAsmInstruction(ls));
+                    instructions.Add(new InlineAsmInstruction(ls, asm.File, asm.Pos));
                 }
                 break;
             case CallStatement call:
@@ -785,7 +785,7 @@ public static class Compiler
                         }
                         else
                         {
-                            instructions.Add(new Instruction(Operation.Ret, null, null, null!));
+                            instructions.Add(new Instruction(Operation.Ret, null, null, null!, ret.File, ret.Pos));
                         }
                     }
                     else
@@ -794,7 +794,7 @@ public static class Compiler
                         if (valueType.Equals(fctx.RetType))
                         {
                             var res = CompileExpression(ret.Value, ref fctx, ref ctx, instructions, fctx.RetType);
-                            instructions.Add(new Instruction(Operation.Ret, res, null, null!));
+                            instructions.Add(new Instruction(Operation.Ret, res, null, null!, ret.File, ret.Pos));
                         }
                         else
                         {
@@ -826,12 +826,12 @@ public static class Compiler
                     else
                     {
                         var cond = CompileExpression(ifElse.Condition, ref fctx, ref ctx, instructions, ctx.Bool);
-                        var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse);
+                        var jmp = new Jmp(elsestart, cond, JumpType.JmpFalse, ifElse.File, ifElse.Pos);
                         instructions.Add(jmp);
                     }
                     instructions.Add(ifstart);
                     CompileStatement(ref fctx, ref ctx, ifElse.Body, instructions);
-                    var jmptoend = new Jmp(end, null, JumpType.Jmp);
+                    var jmptoend = new Jmp(end, null, JumpType.Jmp, ifElse.File, ifElse.Pos);
                     instructions.Add(jmptoend);
                     instructions.Add(elsestart);
                     if (ifElse.Else is Statement @else)
@@ -842,7 +842,7 @@ public static class Compiler
             case WhileStatement wh:
                 {
                     var condition = fctx.NewLabel();
-                    var jmptocond = new Jmp(condition, null, JumpType.Jmp);
+                    var jmptocond = new Jmp(condition, null, JumpType.Jmp, wh.File, wh.Pos);
                     instructions.Add(jmptocond);
                     var loopbody = fctx.NewLabel();
                     instructions.Add(loopbody);
@@ -852,7 +852,7 @@ public static class Compiler
                         ctx.Errors.Add(new Error($"Condition must be boolean", wh.File, wh.Cond.Pos));
                     instructions.Add(condition);
                     var cond = CompileExpression(wh.Cond, ref fctx, ref ctx, instructions, ctx.Bool);
-                    var jmpif = new Jmp(loopbody, cond, JumpType.JmpTrue);
+                    var jmpif = new Jmp(loopbody, cond, JumpType.JmpTrue, wh.File, wh.Pos);
                     instructions.Add(jmpif);
                 }
                 break;
@@ -872,7 +872,7 @@ public static class Compiler
             else
             {
                 var first = CompileExpression(bin.Left, ref fctx, ref ctx, instructions, ctx.Bool);
-                instructions.Add(new Jmp(elsestart, first, JumpType.JmpFalse));
+                instructions.Add(new Jmp(elsestart, first, JumpType.JmpFalse, bin.File, bin.Pos));
             }
             if (bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
             {
@@ -883,9 +883,9 @@ public static class Compiler
             else
             {
                 var second = CompileExpression(bin.Right, ref fctx, ref ctx, instructions, ctx.Bool);
-                instructions.Add(new Jmp(elsestart, second, JumpType.JmpFalse));
+                instructions.Add(new Jmp(elsestart, second, JumpType.JmpFalse, bin.File, bin.Pos));
             }
-            instructions.Add(new Jmp(ifstart, null, JumpType.Jmp));
+            instructions.Add(new Jmp(ifstart, null, JumpType.Jmp, bin.File, bin.Pos));
         }
         else
         {
@@ -896,7 +896,7 @@ public static class Compiler
             else
             {
                 var first = CompileExpression(bin.Left, ref fctx, ref ctx, instructions, ctx.Bool);
-                instructions.Add(new Jmp(ifstart, first, JumpType.JmpTrue));
+                instructions.Add(new Jmp(ifstart, first, JumpType.JmpTrue, bin.File, bin.Pos));
             }
             if (bin.Right is BinaryExpression bright && bright.Op is "&&" or "||")
             {
@@ -905,9 +905,9 @@ public static class Compiler
             else
             {
                 var second = CompileExpression(bin.Right, ref fctx, ref ctx, instructions, ctx.Bool);
-                instructions.Add(new Jmp(ifstart, second, JumpType.JmpTrue));
+                instructions.Add(new Jmp(ifstart, second, JumpType.JmpTrue, bin.File, bin.Pos));
             }
-            instructions.Add(new Jmp(elsestart, null, JumpType.Jmp));
+            instructions.Add(new Jmp(elsestart, null, JumpType.Jmp, bin.File, bin.Pos));
         }
     }
     private static Variable CompileRefOf(Expression expr, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
@@ -920,7 +920,7 @@ public static class Compiler
                 || (v = ctx.Globals.FirstOrDefault(x => x.Name == varr.Name)) is not null)
                 {
                     var addr = fctx.NewTemp(new PtrTypeInfo(v.Type));
-                    instructions.Add(new Instruction(Operation.Ref, v, null, addr));
+                    instructions.Add(new Instruction(Operation.Ref, v, null, addr, expr.File, expr.Pos));
                     return addr;
                 }
                 else
@@ -935,18 +935,18 @@ public static class Compiler
                     {
                         var addr = CompileRefOf(member.Expr, ref fctx, ref ctx, instructions);
                         var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
-                        instructions.Add(new Instruction(Operation.Equals, addr, null, temp));
+                        instructions.Add(new Instruction(Operation.Equals, addr, null, temp, member.File, member.Pos));
                         var fieldRef = fctx.NewTemp(new PtrTypeInfo(field.Type));
-                        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), fieldRef));
+                        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), fieldRef, member.File, member.Pos));
                         return fieldRef;
                     }
                     else if (type is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo cst && cst.Fields.TryGetValue(member.MemberName, out FieldInfo fld))
                     {
                         var addr = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
                         var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
-                        instructions.Add(new Instruction(Operation.Equals, addr, null, temp));
+                        instructions.Add(new Instruction(Operation.Equals, addr, null, temp, member.File, member.Pos));
                         var fieldRef = fctx.NewTemp(new PtrTypeInfo(fld.Type));
-                        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(fld.Offset, ctx.U64), fieldRef));
+                        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(fld.Offset, ctx.U64), fieldRef, member.File, member.Pos));
                         return fieldRef;
                     }
                     else
@@ -968,7 +968,7 @@ public static class Compiler
                         var i = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instructions, indexType);
                         var indexed = CompileExpression(index.Indexed, ref fctx, ref ctx, instructions, null);
                         var res = fctx.NewTemp(type);
-                        instructions.Add(new Instruction(Operation.Add, indexed, i, res));
+                        instructions.Add(new Instruction(Operation.Add, indexed, i, res, index.File, index.Pos));
                         return res;
                     }
                     else
@@ -988,7 +988,7 @@ public static class Compiler
                     else
                     {
                         var tempref = fctx.NewTemp(new PtrTypeInfo(res.Type));
-                        instructions.Add(new Instruction(Operation.Ref, res, null, tempref));
+                        instructions.Add(new Instruction(Operation.Ref, res, null, tempref, exprs.File, exprs.Pos));
                         return tempref;
                     }
 
@@ -1029,29 +1029,29 @@ public static class Compiler
             ctx.Errors.Add(new Error($"Unknown type {typeOf.Type}", typeOf.File, typeOf.Type.Pos));
             return fctx.NewTemp(ctx.Types["TypeInfo"]);
         }
-        return CompileTypeOf(type, ref fctx, ref ctx, instructions);
+        return CompileTypeOf(type, ref fctx, ref ctx, instructions, typeOf.File, typeOf.Pos);
     }
-    private static Source CompileTypeOf(TypeInfo type, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    private static Source CompileTypeOf(TypeInfo type, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions, string file, Position pos)
     {
         if (type is PtrTypeInfo ptrType)
         {
-            var underType = CompileTypeOf(ptrType.Underlaying, ref fctx, ref ctx, instructions);
+            var underType = CompileTypeOf(ptrType.Underlaying, ref fctx, ref ctx, instructions, file, pos);
             var newObj = ctx.Fns.First(x => x.Name == "new_obj" && x.Params[0].type.Name == "u64");
             newObj.WasUsed = true;
             var typeInfo = ctx.Types["TypeInfo"] as CustomTypeInfo;
-            var typeoftypeinfo = CompileTypeOf(typeInfo, ref fctx, ref ctx, instructions);
+            var typeoftypeinfo = CompileTypeOf(typeInfo, ref fctx, ref ctx, instructions, file, pos);
             var obj = fctx.NewTemp(ctx.Types["Obj"]);
-            instructions.Add(new FnCallInstruction(newObj, new List<Source>() { new Constant<long>(typeInfo.Size, ctx.U64), typeoftypeinfo }, obj));
+            instructions.Add(new FnCallInstruction(newObj, new List<Source>() { new Constant<long>(typeInfo.Size, ctx.U64), typeoftypeinfo }, obj, file, pos));
             var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
-            instructions.Add(new Instruction(Operation.Ref, obj, null, objref));
-            var objptr = GetField(objref, obj.Type, (obj.Type as CustomTypeInfo).Fields["data"], ref fctx, ref ctx, instructions);
+            instructions.Add(new Instruction(Operation.Ref, obj, null, objref, file, pos));
+            var objptr = GetField(objref, obj.Type, (obj.Type as CustomTypeInfo).Fields["data"], ref fctx, ref ctx, instructions,file, pos);
             var typeinfovar = fctx.NewTemp(new PtrTypeInfo(typeInfo));
-            instructions.Add(new Instruction(Operation.Equals, objptr, null, typeinfovar));
-            SetField(typeinfovar, typeInfo, typeInfo.Fields["name"], ctx.NewStr("ptr"), ref fctx, ref ctx, instructions);
-            SetField(typeinfovar, typeInfo, typeInfo.Fields["size"], new Constant<long>(8, ctx.U64), ref fctx, ref ctx, instructions);
-            SetField(typeinfovar, typeInfo, typeInfo.Fields["field_count"], new Constant<long>(0, ctx.U64), ref fctx, ref ctx, instructions);
-            SetField(typeinfovar, typeInfo, typeInfo.Fields["underlaying"], underType, ref fctx, ref ctx, instructions);
-            SetField(typeinfovar, typeInfo, typeInfo.Fields["id"], new Constant<long>(-1, ctx.I64), ref fctx, ref ctx, instructions);
+            instructions.Add(new Instruction(Operation.Equals, objptr, null, typeinfovar, file, pos));
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["name"], ctx.NewStr("ptr"), ref fctx, ref ctx, instructions, file, pos);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["size"], new Constant<long>(8, ctx.U64), ref fctx, ref ctx, instructions, file, pos);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["field_count"], new Constant<long>(0, ctx.U64), ref fctx, ref ctx, instructions, file, pos);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["underlaying"], underType, ref fctx, ref ctx, instructions, file, pos);
+            SetField(typeinfovar, typeInfo, typeInfo.Fields["id"], new Constant<long>(-1, ctx.I64), ref fctx, ref ctx, instructions, file, pos);
             return typeinfovar;
         }
         else
@@ -1059,28 +1059,28 @@ public static class Compiler
             var typeInfo = new Variable($"__type_{type.Name}", ctx.Types["TypeInfo"]);
             typeInfo.IsGlobal = true;
             var res = fctx.NewTemp(new PtrTypeInfo(ctx.Types["TypeInfo"]));
-            instructions.Add(new Instruction(Operation.Ref, typeInfo, null, res));
+            instructions.Add(new Instruction(Operation.Ref, typeInfo, null, res, file, pos));
             return res;
         }
     }
-    private static void SetField(Variable objref, TypeInfo objtype, FieldInfo field, Source data, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    private static void SetField(Variable objref, TypeInfo objtype, FieldInfo field, Source data, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions, string file, Position pos)
     {
 
         var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
         var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
-        instructions.Add(new Instruction(Operation.Equals, objref, null, temp));
-        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
-        instructions.Add(new Instruction(Operation.SetRef, data, null, tempr));
+        instructions.Add(new Instruction(Operation.Equals, objref, null, temp, file, pos));
+        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr, file, pos));
+        instructions.Add(new Instruction(Operation.SetRef, data, null, tempr, file, pos));
     }
-    private static Variable GetField(Variable objref, TypeInfo objtype, FieldInfo field, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
+    private static Variable GetField(Variable objref, TypeInfo objtype, FieldInfo field, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions, string file, Position pos)
     {
 
         var temp = fctx.NewTemp(new PtrTypeInfo(ctx.U8));
         var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
         var res = fctx.NewTemp(field.Type);
-        instructions.Add(new Instruction(Operation.Equals, objref, null, temp));
-        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
-        instructions.Add(new Instruction(Operation.Deref, tempr, null, res));
+        instructions.Add(new Instruction(Operation.Equals, objref, null, temp, file, pos));
+        instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr, file, pos));
+        instructions.Add(new Instruction(Operation.Deref, tempr, null, res, file, pos));
         return res;
     }
     private static Source CompileBoxExpression(BoxExpression box, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
@@ -1092,14 +1092,14 @@ public static class Compiler
         var allocatefn = ctx.Fns.First(x => x.Name == "new_obj" && x.Params[0].type.Equals(U64));
         allocatefn.WasUsed = true;
         var obj = fctx.NewTemp(objtype);
-        var typeofexpr = CompileTypeOf(type, ref fctx, ref ctx, instructions);
-        instructions.Add(new FnCallInstruction(allocatefn, new List<Source>() { new Constant<long>(type.Size, ctx.U64), typeofexpr }, obj));
+        var typeofexpr = CompileTypeOf(type, ref fctx, ref ctx, instructions, box.File, box.Pos);
+        instructions.Add(new FnCallInstruction(allocatefn, new List<Source>() { new Constant<long>(type.Size, ctx.U64), typeofexpr }, obj, box.File, box.Pos));
         var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
-        instructions.Add(new Instruction(Operation.Ref, obj, null, objref));
-        var objdata = GetField(objref, objtype, objtype.Fields["data"], ref fctx, ref ctx, instructions);
+        instructions.Add(new Instruction(Operation.Ref, obj, null, objref, box.File, box.Pos));
+        var objdata = GetField(objref, objtype, objtype.Fields["data"], ref fctx, ref ctx, instructions, box.File, box.Pos);
         var typedobjdata = fctx.NewTemp(new PtrTypeInfo(type));
-        instructions.Add(new Instruction(Operation.Equals, objdata, null, typedobjdata));
-        instructions.Add(new Instruction(Operation.SetRef, expr, null, typedobjdata));
+        instructions.Add(new Instruction(Operation.Equals, objdata, null, typedobjdata, box.File, box.Pos));
+        instructions.Add(new Instruction(Operation.SetRef, expr, null, typedobjdata, box.File, box.Pos));
         return obj;
     }
     private static Source CompileMethodCall(MethodCallExpression method, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
@@ -1116,7 +1116,7 @@ public static class Compiler
                 args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
             }
             var result = fctx.NewTemp(fn.RetType);
-            instructions.Add(new FnCallInstruction(fn, args, result));
+            instructions.Add(new FnCallInstruction(fn, args, result, method.File, method.Pos));
             return result;
         }
         else if(type is PtrTypeInfo iptr && iptr.Underlaying is InterfaceInfo interf)
@@ -1131,7 +1131,7 @@ public static class Compiler
                     args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
                 }
                 var result = fctx.NewTemp(m.RetType);
-                instructions.Add(new InterfaceCall(interf, m, args, result));
+                instructions.Add(new InterfaceCall(interf, m, args, result, method.File, method.Pos));
                 return result;
             }
             else 
@@ -1153,7 +1153,7 @@ public static class Compiler
                 args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
             }
             var result = fctx.NewTemp(fninfo.RetType);
-            instructions.Add(new FnCallInstruction(fninfo, args, result));
+            instructions.Add(new FnCallInstruction(fninfo, args, result, method.File, method.Pos));
             return result;
         }
         else
@@ -1197,9 +1197,9 @@ public static class Compiler
                 var tempr = fctx.NewTemp(new PtrTypeInfo(field.Type));
                 var res = fctx.NewTemp(field.Type);
                 var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
-                instructions.Add(new Instruction(Operation.Equals, src, null, temp));
-                instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr));
-                instructions.Add(new Instruction(Operation.Deref, tempr, null, res));
+                instructions.Add(new Instruction(Operation.Equals, src, null, temp, member.File, member.Pos));
+                instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempr, member.File, member.Pos));
+                instructions.Add(new Instruction(Operation.Deref, tempr, null, res, member.File, member.Pos));
                 return res;
             }
             else if (((memberexprtype as CustomTypeInfo)?.Fields.TryGetValue(member.MemberName, out field) == true))
@@ -1208,9 +1208,9 @@ public static class Compiler
                 var tempref = fctx.NewTemp(type);
                 var res = fctx.NewTemp(type);
                 var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
-                instructions.Add(new Instruction(Operation.Ref, src, null, temp));
-                instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempref));
-                instructions.Add(new Instruction(Operation.Deref, tempref, null, res));
+                instructions.Add(new Instruction(Operation.Ref, src, null, temp, member.File, member.Pos));
+                instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempref, member.File, member.Pos));
+                instructions.Add(new Instruction(Operation.Deref, tempref, null, res, member.File, member.Pos));
                 return res;
             }
             return new Constant<long>(0, ctx.Void);
@@ -1228,11 +1228,11 @@ public static class Compiler
                 if(cust.Interfaces.Count > 0)
                 {
                     var destref = fctx.NewTemp(new PtrTypeInfo(cust));
-                    instructions.Add(new Instruction(Operation.Ref, dest, null, destref));
+                    instructions.Add(new Instruction(Operation.Ref, dest, null, destref, newobj.File, newobj.Pos));
                     var vtable = ctx.Globals.First(x => x.Name == $"@vtable_{cust.Name}");
                     var vtableref = fctx.NewTemp(new PtrTypeInfo(vtable.Type));
-                    instructions.Add(new Instruction(Operation.Ref, vtable, null, vtableref));
-                    SetField(destref, cust, cust.Fields["@vtable"], vtableref, ref fctx, ref ctx, instructions);
+                    instructions.Add(new Instruction(Operation.Ref, vtable, null, vtableref, newobj.File, newobj.Pos));
+                    SetField(destref, cust, cust.Fields["@vtable"], vtableref, ref fctx, ref ctx, instructions, newobj.File, newobj.Pos);
                 }
                 return dest;
             }
@@ -1278,11 +1278,11 @@ public static class Compiler
                 fn.WasUsed = true;
                 var args = new List<Source>();
                 var ptr = fctx.NewTemp(new PtrTypeInfo(dest.Type));
-                instructions.Add(new Instruction(Operation.Ref, dest, null, ptr));
+                instructions.Add(new Instruction(Operation.Ref, dest, null, ptr, newobj.File, newobj.Pos));
                 args.Add(ptr);
                 foreach (var (arg, (_, argtype)) in newobj.Args.Zip(fn.Params.Skip(1)))
                     args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, argtype));
-                instructions.Add(new FnCallInstruction(fn, args, null));
+                instructions.Add(new FnCallInstruction(fn, args, null, newobj.File, newobj.Pos));
             }
             else
             {
@@ -1301,7 +1301,7 @@ public static class Compiler
         var type = ctx.GetTypeInfo(cast.Type) ?? ctx.Void;
         var res = fctx.NewTemp(type);
         var val = CompileExpression(cast.Value, ref fctx, ref ctx, instructions, null);
-        instructions.Add(new Instruction(Operation.Equals, val, null, res));
+        instructions.Add(new Instruction(Operation.Equals, val, null, res, cast.File, cast.Pos));
         return res;
     }
 
@@ -1315,7 +1315,7 @@ public static class Compiler
         var type = InferExpressionType(deref, ref fctx, ref ctx, null);
         var dest = fctx.NewTemp(type);
         var res = CompileExpression(deref.Expr, ref fctx, ref ctx, instructions, type);
-        instructions.Add(new Instruction(Operation.Deref, res, null, dest));
+        instructions.Add(new Instruction(Operation.Deref, res, null, dest, deref.File, deref.Pos));
         return dest;
     }
 
@@ -1328,7 +1328,7 @@ public static class Compiler
             var args = new List<Source>();
             foreach (var (arg, type) in fncall.Args.Zip(fn.Params))
                 args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs, type.type));
-            instrs.Add(new FnCallInstruction(fn, args, res));
+            instrs.Add(new FnCallInstruction(fn, args, res, fncall.File, fncall.Pos));
             return res;
         }
         else
@@ -1348,7 +1348,7 @@ public static class Compiler
             var dest = fctx.NewTemp(destType);
             var expr = CompileExpression(index.Indexes[0], ref fctx, ref ctx, instrs, ctx.U64);
             var source = CompileExpression(index.Indexed, ref fctx, ref ctx, instrs, ptr);
-            instrs.Add(new Instruction(Operation.Index, source, expr, dest));
+            instrs.Add(new Instruction(Operation.Index, source, expr, dest, index.File, index.Pos));
             return dest;
         }
         else
@@ -1367,7 +1367,7 @@ public static class Compiler
                     PtrTypeInfo destType = new PtrTypeInfo(type);
                     var v = CompileExpression(varr, ref fctx, ref ctx, instrs, type);
                     var res = fctx.NewTemp(destType);
-                    instrs.Add(new Instruction(Operation.Ref, v, null, res));
+                    instrs.Add(new Instruction(Operation.Ref, v, null, res, r.File, r.Pos));
                     return res;
                 }
             case IndexExpression index:
@@ -1385,7 +1385,7 @@ public static class Compiler
         {
             var res = CompileExpression(neg.Expr, ref fctx, ref ctx, instrs, type);
             var dest = fctx.NewTemp(type);
-            var negi = new Instruction(Operation.Neg, res, null, dest);
+            var negi = new Instruction(Operation.Neg, res, null, dest, neg.File, neg.Pos);
             instrs.Add(negi);
             return dest;
         }
@@ -1402,7 +1402,7 @@ public static class Compiler
             if (target is not null && !v.Type.Equals(target))
             {
                 var res = fctx.NewTemp(new PtrTypeInfo(target));
-                instrs.Add(new Instruction(Operation.Equals, v, null, res));
+                instrs.Add(new Instruction(Operation.Equals, v, null, res, varr.File, varr.Pos));
                 return res;
             }
             return v;
@@ -1412,7 +1412,7 @@ public static class Compiler
             if (target is not null && !gvar.Type.Equals(target))
             {
                 var res = fctx.NewTemp(new PtrTypeInfo(target));
-                instrs.Add(new Instruction(Operation.Equals, gvar, null, res));
+                instrs.Add(new Instruction(Operation.Equals, gvar, null, res, varr.File, varr.Pos));
                 return res;
             }
             return gvar;
@@ -1467,12 +1467,12 @@ public static class Compiler
             var end = fctx.NewLabel();
             CompileLazyBoolean(bin, ifstart, elsestart, ref fctx, ref ctx, instructions);
             instructions.Add(ifstart);
-            instructions.Add(new Instruction(Operation.Equals, new Constant<bool>(true, ctx.Bool), null, res));
+            instructions.Add(new Instruction(Operation.Equals, new Constant<bool>(true, ctx.Bool), null, res, bin.File, bin.Pos));
             instructions.Add(elsestart);
         }
         else
         {
-            instructions.Add(new Instruction(op, src1, src2, res));
+            instructions.Add(new Instruction(op, src1, src2, res, bin.File, bin.Pos));
         }
         return res;
     }

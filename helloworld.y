@@ -1,6 +1,8 @@
-include "std/utils.y";
-
 fn main()
 {
-    writestr("hello, world");
+    let a: *i32 = null;
+    a[100] = 10;
+    let b = *a;
+
+    writestr("a");
 }

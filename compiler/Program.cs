@@ -13,13 +13,17 @@ public class Program
     ///<param alias="t" name="target">Target platform</param>
     ///<param name="source">Source file</param>
     ///<param name="define" alias="d">Define symbols</param>
-    ///<param name="dumpIr">Dump IR to selected folder</param> 
+    ///<param name="dumpIr">Dump IR to selected folder</param>
+    ///<param name="disableNullChecks" alias="dnc">Enable null checks</param>
+    ///<param name="nogc">No GC</param>
     public static bool Compile(
         FileInfo source,
         Target? target,
         DirectoryInfo? dumpIr = null,
         string[]? define = null,
-        bool optimize = false
+        bool optimize = false,
+        bool disableNullChecks = false,
+        bool nogc = false
     )
     {
         if (!source.Exists)
@@ -37,10 +41,14 @@ public class Program
         //            tokens.ForEach(x => Console.WriteLine(x));
         lerrors.ForEach(x => Console.WriteLine(x));
         Console.WriteLine(tokens.Count);
+        var includes = new List<string>();
+        includes.Add("std/utils.y");
+        if(!nogc) includes.Add("std/gc.y");
         var statements = Parser.Parse(
             tokens,
             out var errors,
-            new HashSet<string>(define ?? Array.Empty<string>()) { t.ToString().ToUpper() }
+            new HashSet<string>(define ?? Array.Empty<string>()) { t.ToString().ToUpper() },
+            includes.ToArray()
         );
         //Console.WriteLine(Formater.Format(statements));
         
@@ -51,7 +59,8 @@ public class Program
             {
                 Optimize = optimize,
                 DumpIR = dumpIr,
-                Target = t
+                Target = t,
+                NullChecks = !disableNullChecks
             }
         );
         Console.ForegroundColor = ConsoleColor.Red;

@@ -92,8 +92,15 @@ public static class Parser
         }
         return result;
     }
-    public static List<Statement> Parse(List<Token> tokens, out List<Error> errors, HashSet<string> definedSymbols)
+    public static List<Statement> Parse(List<Token> tokens, out List<Error> errors, HashSet<string> definedSymbols, string[] defaultIncludes)
     {
+        foreach(var include in defaultIncludes) 
+        {
+            var code = File.ReadAllText(include);
+            var tokns = Preprocess(Lexer.Tokenize(code, include, out var errrs), definedSymbols);
+
+            tokens.InsertRange(0, tokns.Take(tokns.Count - 1));
+        }
         tokens = Preprocess(tokens, definedSymbols);
         tokens.ForEach(x => Console.WriteLine(x));
         var ctx = new Context() { Tokens = tokens, Symbols = definedSymbols };
@@ -404,7 +411,8 @@ public static class Parser
     private static Statement AssignOrFunctionCall(ref Context ctx)
     {
         ctx.Pos--;
-        Console.WriteLine(ctx.Tokens[ctx.Pos]);
+        Console.WriteLine("ASSS");
+        Console.WriteLine(ctx.Tokens[ctx.Pos].Pos.Line);
         var expr = SimpleExpression(ref ctx);
         Console.WriteLine(expr);
         if (expr is not FunctionCallExpression and not ValueCallExpression and not MethodCallExpression)

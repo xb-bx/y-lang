@@ -1,4 +1,3 @@
-include "std/utils.y";
 dllimport "user32.dll" 
 {
     extern fn get_key_state(key: i32): i32 from "GetAsyncKeyState";

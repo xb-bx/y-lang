@@ -1,4 +1,3 @@
-include "std/utils.y";
 include "sdl2_api.y";
 let CELL_SIZE = 20;
 let window_width = 640;

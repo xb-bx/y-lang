@@ -1,5 +1,3 @@
-include "std/gc.y";
-include "std/utils.y";
 include "std/StringBuilder.y";
 struct Size 
 {
@@ -145,6 +143,7 @@ fn main()
         clear();
         game.draw();
     }
+    writestr("");
 }
 fn read(): char 
 {

@@ -3,7 +3,54 @@ namespace YLang.IR;
 public class IRCompiler
 {
     private static string[] firstFourArgsWinx64 = new[] { "rcx", "rdx", "r8", "r9" };
-    public static List<string> Compile(List<InstructionBase> instructions, List<Variable> vars, FnInfo? fn)
+    private bool nullCheck;
+    private List<InstructionBase> instructions;
+    private List<Variable> vars;
+    private Dictionary<string, Constant<string>> consts;
+    private FnInfo? fn;
+    public IRCompiler(bool nullCheck, List<InstructionBase> instructions, List<Variable> vars, FnInfo? fn, Dictionary<string, Constant<string>> consts)
+        => (this.nullCheck, this.instructions, this.vars, this.fn, this.consts) = (nullCheck, instructions, vars, fn, consts);
+    private (Constant<string>, Constant<string>) NewErr(string file, Position pos)
+    {
+        Constant<string> str1const = null, str2const = null;
+        var str1 = $"Null reference at ";
+        if(consts.ContainsKey(str1))
+        {
+            str1const = consts[str1];
+        }
+        else 
+        {
+            str1const = new Constant<string>($"str{consts.Count}", null!);
+            consts.Add(str1, str1const);
+        }
+        var str2 = $"{file}:{pos.Line}:{pos.Column}";
+
+        if(consts.ContainsKey(str2))
+        {
+            str2const = consts[str2];
+        }
+        else 
+        {
+            str2const = new Constant<string>($"str{consts.Count}", null!);
+            consts.Add(str2, str2const);
+        }
+        return (str1const, str2const);
+    }
+    int count = 0;
+    private void CheckNull(Source src, List<string> lines, string file, Position pos)
+    {
+        if(!nullCheck)
+            return;
+        CompileSource(src, lines, "qword", "rax");
+        var (err1, err2) = NewErr(file, pos);
+        lines.Add("cmp rax, 1000");
+        lines.Add($"jg .ok{count}");
+        lines.Add($"mov rcx, {err1}");
+        lines.Add($"mov rdx, {err2}");
+        lines.Add("call __nre");
+        lines.Add($".ok{count++}:");
+    }
+    public List<string> Compile()
     {
         var lines = new List<string>();
         int resoffset = 0;
@@ -82,7 +129,7 @@ public class IRCompiler
                     break;
                 case InterfaceCall icall:
                     {
-
+                        CheckNull(icall.Args[0], lines, icall.File, icall.Pos);
                         if (icall.Method.RetType.Size > 8)
                         {
                             lines.Add($"sub rsp, {icall.Method.RetType.Size}");
@@ -238,7 +285,7 @@ public class IRCompiler
                     }
                     break;
 
-                case Instruction inst: CompileInstr(inst, lines, vars, fn, resoffset); break;
+                case Instruction inst: CompileInstr(inst, lines, resoffset); break;
             }
         }
         if (fn?.RetType.Name == "void")
@@ -249,7 +296,7 @@ public class IRCompiler
         return lines;
     }
 
-    private static void CompileInstr(Instruction instr, List<string> lines, List<Variable> vars, FnInfo fn, int resoffset)
+    private void CompileInstr(Instruction instr, List<string> lines, int resoffset)
     {
         switch (instr.Op)
         {
@@ -472,6 +519,7 @@ public class IRCompiler
                 break;
             case Operation.SetRef:
                 {
+                    CheckNull(instr.Destination, lines, instr.File, instr.Pos); 
                     var undersize = (instr.Destination.Type as PtrTypeInfo)?.Underlaying.Size;
                     var (size, reg) = undersize switch
                     {
@@ -501,6 +549,7 @@ public class IRCompiler
                 break;
             case Operation.Deref:
                 {
+                    CheckNull(instr.First, lines, instr.File, instr.Pos); 
                     var (size, reg) = instr.Destination.Type.Size switch
                     {
                         1 => ("byte", "al"),
@@ -564,6 +613,7 @@ public class IRCompiler
                 break;
             case Operation.Index:
                 {
+                    CheckNull(instr.First, lines, instr.File, instr.Pos);
                     var underlayingSize = (instr.First.Type as PtrTypeInfo)?.Underlaying.Size;
                     var (size, reg) = underlayingSize switch
                     {
