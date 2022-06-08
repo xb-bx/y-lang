@@ -421,16 +421,17 @@ public class IRCompiler
             case Operation.BINOR:
             case Operation.XOR:
                 {
+                    bool isShift = instr.Op is Operation.Shl || instr.Op is Operation.Shr;
                     var (size, reg1, reg2) = instr.Destination.Type.Size switch
                     {
-                        1 => ("byte", "al", "bl"),
-                        2 => ("word", "ax", "bx"),
-                        4 => ("dword", "eax", "ebx"),
-                        _ => ("qword", "rax", "rbx"),
+                        1 => ("byte", "al", "cl"),
+                        2 => ("word", "ax", isShift ? "cl" : "cx"),
+                        4 => ("dword", "eax", isShift ? "cl" : "ecx"),
+                        _ => ("qword", "rax", isShift ? "cl" : "rcx"),
                     };
                     CompileSource(instr.First, lines, size, reg1);
                     var isSecconst = instr.Second is Constant<long>;
-                    if (!isSecconst) CompileSource(instr.Second, lines, size, reg2);
+                    if (!isSecconst) CompileSource(instr.Second, lines, isShift ? "byte" : size, reg2);
                     var op = instr.Op switch
                     {
                         Operation.Add => "add",
