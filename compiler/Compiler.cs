@@ -64,6 +64,7 @@ public static class Compiler
     }
     public static List<Error> Compile(List<Statement> statements, string output, CompilerSettings settings)
     {
+        Console.WriteLine($"Need to opt: {settings.Optimize}");
         if (settings.DumpIR is not null && !settings.DumpIR.Exists)
         {
             settings.DumpIR.Create();
@@ -141,7 +142,7 @@ public static class Compiler
             return ctx.Errors;
         }
         var chartype = ctx.Char;
-        if(settings.NullChecks && ctx.Fns.FirstOrDefault(x => x.Name == "writestr" && x.Params.Count == 1 && x.Params[0].type.Equals(new PtrTypeInfo(chartype))) is FnInfo writestrfn)
+        if (settings.NullChecks && ctx.Fns.FirstOrDefault(x => x.Name == "writestr" && x.Params.Count == 1 && x.Params[0].type.Equals(new PtrTypeInfo(chartype))) is FnInfo writestrfn)
         {
             writestrfn.WasUsed = true;
         }
@@ -157,17 +158,6 @@ public static class Compiler
                 var f = CompileFn(ref ctx, fn);
                 //Console.WriteLine(string.Join('\n', f.Info.Compiled));
                 compiledfns.Add((f.Variables, f.Info));
-                if (settings.DumpIR is not null)
-                {
-                    var sb = new StringBuilder();
-                    sb.AppendLine("Variables: ");
-                    foreach (var variable in f.Variables)
-                        sb.AppendLine(variable.ToString());
-                    sb.AppendLine("-------- BODY ---------");
-                    foreach (var instr in f.Info.Compiled)
-                        sb.AppendLine(instr.ToString());
-                    File.WriteAllText(Path.Combine(settings.DumpIR.FullName, $"{f.Info.NameInAsm}.ir"), sb.ToString());
-                }
             }
         }
         foreach (var (vars, fn) in compiledfns)
@@ -177,8 +167,20 @@ public static class Compiler
             var fctx = new FunctionContext();
             fctx.Variables = vars;
             fctx.Info = fn;
+            Console.WriteLine(fn.Name);
             if (settings.Optimize && fn.Compiled is not null)
                 Optimize(fn.Compiled);
+            if (settings.DumpIR is not null)
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("Variables: ");
+                foreach (var variable in vars)
+                    sb.AppendLine(variable.ToString());
+                sb.AppendLine("-------- BODY ---------");
+                foreach (var instr in fn.Compiled)
+                    sb.AppendLine(instr.ToString());
+                File.WriteAllText(Path.Combine(settings.DumpIR.FullName, $"{fn.NameInAsm}.ir"), sb.ToString());
+            }
             res.AddRange(new IRCompiler(settings.NullChecks, fn.Compiled, vars, fn, ctx.StringConstants).Compile());
         }
         var globalsinit = new IRCompiler(settings.NullChecks, instrs, new(), null!, ctx.StringConstants).Compile();
@@ -198,7 +200,7 @@ public static class Compiler
                 .AppendLine("sub rsp, 8")
                 .AppendLine("__exitprog:")
                 .AppendLine("invoke ExitProcess, 0");
-                if(settings.NullChecks)
+            if (settings.NullChecks)
                 result
                     .AppendLine("__nre:")
                     .AppendLine("push rdx")
@@ -208,14 +210,14 @@ public static class Compiler
                     .AppendLine("call writestrptrchar")
                     .AppendLine("add rsp, 8")
                     .AppendLine("jmp __exitprog");
-                result.AppendLine(string.Join('\n', res));
+            result.AppendLine(string.Join('\n', res));
             if (ctx.Globals.Count > 0 || ctx.StringConstants.Count > 0)
             {
                 result.AppendLine("section '.data' data readable writable");
                 GenerateTypeInfos(ref ctx, result);
                 foreach (var global in ctx.Globals)
-                if(!global.Name.StartsWith('@'))
-                    result.AppendLine($"{global.Name} dq {(global.Type.Size > 8 ? string.Join(", ", Enumerable.Repeat("0", global.Type.Size / 8)) : "0")}");
+                    if (!global.Name.StartsWith('@'))
+                        result.AppendLine($"{global.Name} dq {(global.Type.Size > 8 ? string.Join(", ", Enumerable.Repeat("0", global.Type.Size / 8)) : "0")}");
                 foreach (var (s, str) in ctx.StringConstants)
                     result.AppendLine($"{str.Value} db {string.Join(',', s.Select(x => (byte)x).Append((byte)0))}");
                 GenerateVTables(ref ctx, result);
@@ -283,32 +285,32 @@ public static class Compiler
 
     private static void GenerateVTables(ref Context ctx, StringBuilder result)
     {
-        foreach(var struc in ctx.Types.Values.OfType<CustomTypeInfo>().Where(x => x.Interfaces.Count > 0))
+        foreach (var struc in ctx.Types.Values.OfType<CustomTypeInfo>().Where(x => x.Interfaces.Count > 0))
         {
             result.Append($"@vtable_{struc.Name} dq ");
             int i = 0;
-            foreach(var interfac in struc.Interfaces)
+            foreach (var interfac in struc.Interfaces)
             {
-                while(i < interfac.Number - 1) 
+                while (i < interfac.Number - 1)
                 {
                     result.Append("0,");
                     i++;
                 }
                 result.Append($"vtable_{struc.Name}_{interfac.Name}");
                 i = interfac.Number;
-                if(interfac.Number < struc.Interfaces.Last().Number)
+                if (interfac.Number < struc.Interfaces.Last().Number)
                     result.Append(',');
                 else result.AppendLine();
             }
-            foreach(var interfac in struc.Interfaces) 
+            foreach (var interfac in struc.Interfaces)
             {
-                if(interfac.Methods.Count > 0)
-                result.Append($"vtable_{struc.Name}_{interfac.Name} dq ");
-                foreach(var method in interfac.Methods)
+                if (interfac.Methods.Count > 0)
+                    result.Append($"vtable_{struc.Name}_{interfac.Name} dq ");
+                foreach (var method in interfac.Methods)
                 {
                     var fn = struc.Methods.FirstOrDefault(x => x.Name.EndsWith("." + method.Name) && method.Params.Skip(1).Select(y => y.type).IsSequenceEquals(x.Params.Skip(1).Select(p => p.type)));
                     result.Append($"{fn?.NameInAsm}");
-                    if(method.Number < interfac.Methods.Count - 1)
+                    if (method.Number < interfac.Methods.Count - 1)
                         result.Append(", ");
                     else result.AppendLine();
                 }
@@ -319,21 +321,21 @@ public static class Compiler
     {
         var interfaceslist = new List<InterfaceInfo>();
         ctx.Interfaces = interfaceslist;
-        foreach(var interf in interfaces)
+        foreach (var interf in interfaces)
         {
             var interfType = new InterfaceInfo(interf.Name, new(), interfaceslist.Count);
             interfaceslist.Add(interfType);
-            if(ctx.Types.ContainsKey(interfType.Name))
+            if (ctx.Types.ContainsKey(interfType.Name))
             {
                 ctx.Errors.Add(new Error($"Type {interfType.Name} already defined", interf.File, interf.Pos));
                 continue;
             }
-            ctx.Types.Add(interfType.Name, interfType); 
+            ctx.Types.Add(interfType.Name, interfType);
         }
     }
-    private static void AddInterfaces(ref Context ctx, List<InterfaceDefinitionStatement> interfaces) 
+    private static void AddInterfaces(ref Context ctx, List<InterfaceDefinitionStatement> interfaces)
     {
-        foreach(var interf in interfaces) 
+        foreach (var interf in interfaces)
         {
             InterfaceInfo interfType = (ctx.Types[interf.Name] as InterfaceInfo)!;
             var methods = interfType.Methods;
@@ -378,6 +380,73 @@ public static class Compiler
     }
     private static void Optimize(List<InstructionBase> instrs, int optimization = 8)
     {
+        Console.WriteLine("OPTIMIZE");
+        for(int opc = 0; opc < optimization; opc++)
+        for (int ind = 0; ind < instrs.Count; ind++)
+        {
+            var instr = instrs[ind];
+            var next = ind + 1 < instrs.Count ? instrs[ind + 1] : null;
+            if (instr is Instruction i)
+            {
+                if (i.Op is Operation.Neg && i.First is Constant<long> c)
+                {
+                    instrs[ind] = new Instruction(Operation.Equals, new Constant<long>(-c.Value, c.Type), null, i.Destination, i.File, i.Pos);
+                }
+                else if(i.Op is Operation.Add or Operation.Sub && i.Second is Constant<long> cc && cc.Value == 0 && i.Destination.Type.Size == i.First.Type.Size)
+                {
+                    instrs[ind] = new Instruction(Operation.Equals, i.First, null, i.Destination, i.File, i.Pos);
+                }
+                else if(i.Op is Operation.Add or Operation.Sub && i.Second is Constant<long> ccc && ccc.Value == 1 
+                        && next is Instruction nexti && i.First is Variable ivar
+                        && nexti.First is Variable nextv
+                        && nexti.Op is Operation.Equals && nexti.Destination == ivar 
+                        && nextv == i.Destination)
+                {
+                    instrs.RemoveAt(ind);
+                    var op = i.Op is Operation.Add ? Operation.Inc : Operation.Dec;
+                    instrs[ind] = new Instruction(op, null, null, nexti.Destination, next.File, next.Pos);
+                }
+                else if(CheckProducesConstant(i) && next is Instruction nextiv && UsesVar(nextiv, i.Destination)) 
+                {
+                    instrs.RemoveAt(ind);
+                    var leftc = i.First as Constant<long>;
+                    var rightc = i.Second as Constant<long>;
+                    var left = leftc!.Value;
+                    var right = rightc!.Value;
+                    var val = i.Op switch 
+                    {
+                        Operation.Add => left + right,
+                        Operation.Sub => left - right,
+                        Operation.Div => left / right,
+                        Operation.Mul => left * right,
+                    };
+                    var fst = nextiv.First == i.Destination ? new Constant<long>(val, i.Destination.Type) : nextiv.First;
+                    var snd = nextiv.Second == i.Destination ? new Constant<long>(val, i.Destination.Type) : nextiv.Second;
+                    instrs[ind] = new Instruction(nextiv.Op, fst, snd, nextiv.Destination, nextiv.File, nextiv.Pos); 
+                }
+                else if(false && CheckIsConst(i) && next is Instruction nextii && UsesVar(nextii, i.Destination))
+                {
+                    int index = i.Destination.IsTemp ? ind : ind + 1;
+                    if(i.Destination.IsTemp) instrs.RemoveAt(ind);
+                    var fst = nextii.First == i.Destination ? i.First : nextii.First;
+                    var snd = nextii.Second == i.Destination ? i.First : nextii.Second;
+                    instrs[index] = new Instruction(nextii.Op, fst, snd, nextii.Destination, nextii.File, nextii.Pos); 
+                }
+                        
+            }
+        }
+    }
+    private static bool CheckIsConst(Instruction i) 
+    {
+        return i.First is Constant<long> && i.Op is Operation.Equals;
+    }
+    private static bool UsesVar(Instruction i, Variable v) 
+    {
+        return i.First == v || i.Second == v;
+    }
+    private static bool CheckProducesConstant(Instruction i) 
+    {
+        return i.First is Constant<long> && i.Second is Constant<long> && i.Op is Operation.Add or Operation.Mul or Operation.Sub or Operation.Div;
     }
     private static void GenerateTypeInfos(ref Context ctx, StringBuilder sb)
     {
@@ -429,13 +498,13 @@ public static class Compiler
         foreach (var (structt, struc) in structs.Zip(structTypes))
         {
             var interfaces = new List<InterfaceInfo>(struc.Interfaces.Count);
-            foreach(var interf in structt.Interfaces)
+            foreach (var interf in structt.Interfaces)
             {
-                if(ctx.GetTypeInfo(interf) is InterfaceInfo interfaceInfo) 
+                if (ctx.GetTypeInfo(interf) is InterfaceInfo interfaceInfo)
                 {
                     interfaces.Add(interfaceInfo);
                 }
-                else 
+                else
                 {
                     ctx.Errors.Add(new Error($"Cannot find interface {interf}", interf.File, interf.Pos));
                     continue;
@@ -444,7 +513,7 @@ public static class Compiler
             interfaces = interfaces.OrderBy(x => x.Number).ToList();
             var fields = new Dictionary<string, FieldInfo>();
             int offset = 0;
-            if(interfaces.Count > 0)
+            if (interfaces.Count > 0)
             {
                 fields.Add("@vtable", new FieldInfo(0, ctx.U64));
                 offset = 8;
@@ -535,7 +604,7 @@ public static class Compiler
                 ctx.Fns.Add(info);
                 methods.Add(info);
             }
-            if(interfaces.Count > 0)
+            if (interfaces.Count > 0)
                 ctx.Globals.Add(new Variable($"@vtable_{struc.Name}", new PtrTypeInfo(new PtrTypeInfo(ctx.Void))) { IsGlobal = true });
             struc.RecomputeSize();
         }
@@ -543,28 +612,28 @@ public static class Compiler
     private static void CheckStructsInterfaces(ref Context ctx, List<StructDefinitionStatement> structs)
     {
         Console.WriteLine($"COUNT IS S: {structs.Count}");
-        foreach(var structt in structs)
+        foreach (var structt in structs)
         {
             Console.WriteLine($"ISTR: {structt.Name}");
             CustomTypeInfo struc = (ctx.Types[structt.Name] as CustomTypeInfo)!;
             var methods = struc.Methods;
             var interfaces = struc.Interfaces;
-            foreach(var interf in interfaces) 
+            foreach (var interf in interfaces)
             {
                 Console.WriteLine(interf.Name);
-                foreach(var method in interf.Methods)
+                foreach (var method in interf.Methods)
                 {
-                    if(methods.FirstOrDefault(
-                                x => 
+                    if (methods.FirstOrDefault(
+                                x =>
                                     x.Name.EndsWith('.' + method.Name)
                                     && x.Params.Count == method.Params.Count
                                     && x.Params.Skip(1).Select(y => y.type).ToList().IsSequenceEquals(x.Params.Skip(1).Select(p => p.type).ToList())) is FnInfo fn)
                     {
                         Console.WriteLine($"{fn.Params.Skip(1).Count()} {method.Params.Skip(1).Count()}");
-                        
+
                         fn.WasUsed = true;
                     }
-                    else 
+                    else
                     {
                         ctx.Errors.Add(new Error($"Struct {struc.Name} does not implement method {interf.Name}.{method.Name}", structt.File, structt.Pos));
                     }
@@ -593,7 +662,12 @@ public static class Compiler
             Variables.Add(v);
             return v;
         }
-        public Variable NewTemp(TypeInfo type) => NewVar($"t{TempCount++}", type);
+        public Variable NewTemp(TypeInfo type) 
+        {
+            var v = NewVar($"t{TempCount++}", type);
+            v.IsTemp = true;
+            return v;
+        }
     }
     private static FunctionContext CompileFn(ref Context ctx, FnInfo info)
     {
@@ -611,12 +685,12 @@ public static class Compiler
             fctx.Variables.Add(new Variable(arg, type, true));
         }
         fctx.RetType = info.RetType;
-        if(info.Name.EndsWith("._ctor"))
+        if (info.Name.EndsWith("._ctor"))
         {
             var cust = info.Params[0].type as PtrTypeInfo;
-            if(cust?.Underlaying is CustomTypeInfo struc && struc.Interfaces.Count > 0)
+            if (cust?.Underlaying is CustomTypeInfo struc && struc.Interfaces.Count > 0)
             {
-                var thisvar = fctx.Variables.First(x => x.Name == "this");    
+                var thisvar = fctx.Variables.First(x => x.Name == "this");
                 var vtable = ctx.Globals.First(x => x.Name == $"@vtable_{struc.Name}");
                 var vtableref = fctx.NewTemp(new PtrTypeInfo(vtable.Type));
                 res.Add(new Instruction(Operation.Ref, vtable, null, vtableref, info.Body.File, info.Body.Pos));
@@ -643,13 +717,13 @@ public static class Compiler
                         ctx.Errors.Add(new Error($"Undefined type {let.Type}", let.Type.File, let.Type.Pos));
                         return;
                     }
-                    if(letType is InterfaceInfo)
+                    if (letType is InterfaceInfo)
                     {
                         ctx.Errors.Add(new Error($"Cannot declare variable of interface type", let.Type.File, let.Type.Pos));
                         return;
                     }
                     var valueType = InferExpressionType(let.Value, ref fctx, ref ctx, letType);
-                    if(letType is PtrTypeInfo ptr && ptr.Underlaying is InterfaceInfo interf && valueType is PtrTypeInfo vptr && vptr.Underlaying is CustomTypeInfo cust && cust.Interfaces.Contains(interf)) {}
+                    if (letType is PtrTypeInfo ptr && ptr.Underlaying is InterfaceInfo interf && valueType is PtrTypeInfo vptr && vptr.Underlaying is CustomTypeInfo cust && cust.Interfaces.Contains(interf)) { }
                     else if (!letType.Equals(valueType))
                     {
                         ctx.Errors.Add(new Error($"Cannot assign value of type {valueType} to variable of type {letType}", let.File, let.Value.Pos));
@@ -1044,7 +1118,7 @@ public static class Compiler
             instructions.Add(new FnCallInstruction(newObj, new List<Source>() { new Constant<long>(typeInfo.Size, ctx.U64), typeoftypeinfo }, obj, file, pos));
             var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
             instructions.Add(new Instruction(Operation.Ref, obj, null, objref, file, pos));
-            var objptr = GetField(objref, obj.Type, (obj.Type as CustomTypeInfo).Fields["data"], ref fctx, ref ctx, instructions,file, pos);
+            var objptr = GetField(objref, obj.Type, (obj.Type as CustomTypeInfo).Fields["data"], ref fctx, ref ctx, instructions, file, pos);
             var typeinfovar = fctx.NewTemp(new PtrTypeInfo(typeInfo));
             instructions.Add(new Instruction(Operation.Equals, objptr, null, typeinfovar, file, pos));
             SetField(typeinfovar, typeInfo, typeInfo.Fields["name"], ctx.NewStr("ptr"), ref fctx, ref ctx, instructions, file, pos);
@@ -1119,14 +1193,14 @@ public static class Compiler
             instructions.Add(new FnCallInstruction(fn, args, result, method.File, method.Pos));
             return result;
         }
-        else if(type is PtrTypeInfo iptr && iptr.Underlaying is InterfaceInfo interf)
+        else if (type is PtrTypeInfo iptr && iptr.Underlaying is InterfaceInfo interf)
         {
-            if(TryGetInterfaceMethod(method.Name, interf, method.Args, ref ctx, ref fctx) is InterfaceMethod m)
-            {   
+            if (TryGetInterfaceMethod(method.Name, interf, method.Args, ref ctx, ref fctx) is InterfaceMethod m)
+            {
                 var thisptr = CompileExpression(method.Expr, ref fctx, ref ctx, instructions, type);
                 var args = new List<Source>();
                 args.Add(thisptr);
-                foreach(var (arg, targetType) in method.Args.Zip(m.Params.Skip(1).Select(x => x.type)))
+                foreach (var (arg, targetType) in method.Args.Zip(m.Params.Skip(1).Select(x => x.type)))
                 {
                     args.Add(CompileExpression(arg, ref fctx, ref ctx, instructions, targetType));
                 }
@@ -1134,7 +1208,7 @@ public static class Compiler
                 instructions.Add(new InterfaceCall(interf, m, args, result, method.File, method.Pos));
                 return result;
             }
-            else 
+            else
             {
                 ctx.Errors.Add(new Error($"Interface {interf.Name} does not contains method {method.Name}", method.File, method.Pos));
                 return fctx.NewTemp(ctx.Void);
@@ -1164,7 +1238,7 @@ public static class Compiler
     }
     private static Source CompileMember(MemberAccessExpression member, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
-        if (member.Expr is VariableExpression vvar 
+        if (member.Expr is VariableExpression vvar
                 && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null
                 && ctx.Globals.FirstOrDefault(x => x.Name == vvar.Name) is null)
         {
@@ -1225,7 +1299,7 @@ public static class Compiler
         {
             if (cust.Constructors.Count == 0 && newobj.Args.Count == 0)
             {
-                if(cust.Interfaces.Count > 0)
+                if (cust.Interfaces.Count > 0)
                 {
                     var destref = fctx.NewTemp(new PtrTypeInfo(cust));
                     instructions.Add(new Instruction(Operation.Ref, dest, null, destref, newobj.File, newobj.Pos));
@@ -1562,13 +1636,13 @@ public static class Compiler
     private static TypeInfo InferExpressionType(Expression expr, ref FunctionContext fctx, ref Context ctx, TypeInfo? target)
     {
         var type = FirstInferExpressionType(expr, ref fctx, ref ctx, target);
-        if(target is InterfaceInfo interf && type is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo cust)
+        if (target is InterfaceInfo interf && type is PtrTypeInfo ptr && ptr.Underlaying is CustomTypeInfo cust)
         {
-            if(cust.Interfaces.Contains(interf))
+            if (cust.Interfaces.Contains(interf))
             {
                 return new PtrTypeInfo(interf);
             }
-            else 
+            else
             {
                 ctx.Errors.Add(new Error($"Cannot convert {cust} to {interf}", expr.File, expr.Pos));
             }
@@ -1609,7 +1683,7 @@ public static class Compiler
                 }
             case MemberAccessExpression member:
                 {
-                    if (member.Expr is VariableExpression vvar 
+                    if (member.Expr is VariableExpression vvar
                             && fctx.Variables.FirstOrDefault(x => x.Name == vvar.Name) is null
                             && ctx.Globals.FirstOrDefault(x => x.Name == vvar.Name) is null)
                     {
@@ -1658,17 +1732,17 @@ public static class Compiler
                     {
                         return fn.RetType is PtrTypeInfo && target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : fn.RetType;
                     }
-                    else if(type is PtrTypeInfo ptr && ptr.Underlaying is InterfaceInfo interf)
+                    else if (type is PtrTypeInfo ptr && ptr.Underlaying is InterfaceInfo interf)
                     {
-                        if(TryGetInterfaceMethod(method.Name, interf, method.Args, ref ctx, ref fctx) is InterfaceMethod m)
+                        if (TryGetInterfaceMethod(method.Name, interf, method.Args, ref ctx, ref fctx) is InterfaceMethod m)
                         {
-                            return m.RetType; 
+                            return m.RetType;
                         }
-                        else 
+                        else
                         {
                             ctx.Errors.Add(new Error($"Interface {interf.Name} does not contains method {method.Name}", method.File, method.Pos));
                         }
-                        return ctx.Void; 
+                        return ctx.Void;
                     }
                     else
                     {
@@ -1797,7 +1871,7 @@ public static class Compiler
     private static InterfaceMethod? TryGetInterfaceMethod(string name, InterfaceInfo interf, List<Expression> args, ref Context ctx, ref FunctionContext fctx)
     {
         var types = new List<TypeInfo>();
-        foreach(var arg in args)
+        foreach (var arg in args)
         {
             types.Add(InferExpressionType(arg, ref fctx, ref ctx, null));
         }

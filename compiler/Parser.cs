@@ -102,7 +102,7 @@ public static class Parser
             tokens.InsertRange(0, tokns.Take(tokns.Count - 1));
         }
         tokens = Preprocess(tokens, definedSymbols);
-        tokens.ForEach(x => Console.WriteLine(x));
+        //tokens.ForEach(x => Console.WriteLine(x));
         var ctx = new Context() { Tokens = tokens, Symbols = definedSymbols };
         errors = ctx.Errors;
         var res = new List<Statement>();
