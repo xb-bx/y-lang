@@ -597,20 +597,20 @@ public static class Parser
     private static Expression Additive(ref Context ctx)
     {
         var first = Multiplicative(ref ctx);
-        if (ctx.Match(MatchGroup.MatchOp("+").OrOp("-"), out var op))
+        while (ctx.Match(MatchGroup.MatchOp("+").OrOp("-"), out var op))
         {
-            var snd = Additive(ref ctx);
-            return new BinaryExpression(first, snd, op.Value);
+            var snd = Multiplicative(ref ctx);
+            first = new BinaryExpression(first, snd, op.Value);
         }
         return first;
     }
     private static Expression Multiplicative(ref Context ctx)
     {
         var first = Negate(ref ctx);
-        if (ctx.Match(MatchGroup.MatchOp("*").OrOp("/").OrOp("%"), out var op))
+        while(ctx.Match(MatchGroup.MatchOp("*").OrOp("/").OrOp("%"), out var op))
         {
-            var snd = Multiplicative(ref ctx);
-            return new BinaryExpression(first, snd, op.Value);
+            var snd = Negate(ref ctx);
+            first = new BinaryExpression(first, snd, op.Value);
         }
         return first;
     }
