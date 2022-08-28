@@ -11,4 +11,20 @@ public sealed class PtrType : TypeExpression
     public override string ToString()
         => Name;
 }
+public sealed class FnPtrType : TypeExpression 
+{
+    public List<TypeExpression> Arguments { get; private set; }
+    public TypeExpression ReturnType { get; private set; }
+    private string name;
+    public override string Name => name;
+
+    public FnPtrType(List<TypeExpression> args, TypeExpression retType, Position pos)
+    {
+        (Arguments, ReturnType, Pos, File) = (args, retType, pos, retType.File);
+        name = ToString();
+    }
+    
+    public override string ToString()
+        => $"fnptr";
+}
 

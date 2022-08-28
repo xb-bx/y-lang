@@ -8,6 +8,7 @@ public class Variable : Source
     public bool IsArg { get; private set; }
     public bool IsGlobal { get; set; }
     public bool IsTemp { get; set; } 
+    public bool RefTaken { get; set; }
     public Variable(string name, TypeInfo type, bool isArg = false)
         => (Name, Type, IsArg) = (name, type, isArg);
     public override string ToString()

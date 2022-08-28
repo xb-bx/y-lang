@@ -466,15 +466,35 @@ public static class Parser
     }
     private static TypeExpression ParseType(ref Context ctx)
     {
-        var tok = ctx.ForceMatch(MatchGroup.Id.OrOp("*"), Token.UndefinedId);
+        var tok = ctx.ForceMatch(MatchGroup.Id.OrOp("*").OrKeyword("fn"), Token.UndefinedId);
         var type = tok switch
         {
             { Type: TokenType.Operator, Value: "*", Pos: var pos } => PtrType(ref ctx, pos),
             { Type: TokenType.Id, Value: var val, Pos: var pos, File: var file } => new TypeExpression(val, pos, file),
+            { Type: TokenType.Keyword, Value: "fn", Pos: var pos } => FnPtrType(ref ctx, pos),
             _ => throw new Exception($"It shouldnt happen {tok}")
         };
         return type;
     }
+
+    private static FnPtrType FnPtrType(ref Context ctx, Position pos)
+    {
+        ctx.ForceMatch(MatchGroup.LP);
+        var res = new List<TypeExpression>();
+        if (!ctx.Match(MatchGroup.RP, out _))
+        {
+            do
+            {
+                res.Add(ParseType(ref ctx));
+            }
+            while (ctx.Match(TokenType.Comma, out _));
+            ctx.ForceMatch(MatchGroup.RP);
+        }
+        ctx.ForceMatch(MatchGroup.Colon);
+        var ret = ParseType(ref ctx);
+        return new FnPtrType(res, ret, pos);
+    }
+
     private static PtrType PtrType(ref Context ctx, Position pos)
     {
         int depth = 1;

@@ -16,4 +16,8 @@ public static class Exts
         var second = other.ToList();
         return first.Count == second.Count && first.SequenceEqual(second);
     }
+    public static int ToModusOf16(this int num) 
+    {
+        return num + (num % 16 == 0 ? 0 : 8);
+    }
 }

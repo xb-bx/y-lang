@@ -13,4 +13,13 @@ public class Instruction : InstructionBase
     }
 }
 
+public class FnRefInstruction : InstructionBase 
+{
+    public FnInfo Fn { get; private set; }
+    public Variable Destination { get; private set; }
+    public FnRefInstruction(FnInfo fn, Variable dest,  string file, Position pos)
+        => (Fn, Destination, File, Pos) = (fn, dest, file, pos);
+    public override string ToString()
+        => $"{Destination} = &{Fn}";
+}
 

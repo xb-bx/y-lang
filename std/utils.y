@@ -106,6 +106,7 @@ fn writenum(x: i32)
         writestr("0", 1);
         ret;
     }
+    asm {;START}
     let buff: *char = null;
     let secondbuff: *char = null;
     asm 

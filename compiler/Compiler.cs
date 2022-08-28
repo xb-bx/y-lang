@@ -6,7 +6,7 @@ namespace YLang;
 
 public static class Compiler
 {
-    private ref struct Context
+    private struct Context
     {
         public Dictionary<string, TypeInfo> Types = null!;
         public List<FnInfo> Fns = new();
@@ -43,6 +43,18 @@ public static class Compiler
                 {
                     return null;
                 }
+            }
+            else if(typeexpr is FnPtrType fnptr) 
+            {
+                TypeInfo CheckType(Context ctx, TypeExpression type, TypeInfo? typeinfo) 
+                {
+                    if(typeinfo is null) ctx.Errors.Add(new Error($"Unknown type {type}", type.File, type.Pos));
+                    return typeinfo ?? ctx.Void;
+                }
+                var ct = this;
+                var args = fnptr.Arguments.Select(x => CheckType(ct, x, ct.GetTypeInfo(x))).ToList();
+                var ret = CheckType(this, fnptr.ReturnType, GetTypeInfo(fnptr.ReturnType));
+                return new FnPtrTypeInfo(args, ret);
             }
             else
             {
@@ -169,7 +181,7 @@ public static class Compiler
             fctx.Info = fn;
             Console.WriteLine(fn.Name);
             if (settings.Optimize && fn.Compiled is not null)
-                Optimize(fn.Compiled);
+                Optimize(fn.Compiled, vars);
             if (settings.DumpIR is not null)
             {
                 var sb = new StringBuilder();
@@ -196,8 +208,8 @@ public static class Compiler
                 .AppendLine("section '.code' code readable executable")
                 .AppendLine("__start:")
                 .AppendLine(string.Join('\n', globalsinit))
-                .AppendLine("call main")
                 .AppendLine("sub rsp, 8")
+                .AppendLine("call main")
                 .AppendLine("__exitprog:")
                 .AppendLine("invoke ExitProcess, 0");
             if (settings.NullChecks)
@@ -378,73 +390,100 @@ public static class Compiler
             context.Types.Add(enumDecl.Name, new EnumInfo(enumDecl.Name, enumDecl.Values));
         }
     }
-    private static void Optimize(List<InstructionBase> instrs, int optimization = 8)
+    private static void Optimize(List<InstructionBase> instrs, List<Variable> vars, int optimization = 8)
     {
         Console.WriteLine("OPTIMIZE");
-        for(int opc = 0; opc < optimization; opc++)
-        for (int ind = 0; ind < instrs.Count; ind++)
-        {
-            var instr = instrs[ind];
-            var next = ind + 1 < instrs.Count ? instrs[ind + 1] : null;
-            if (instr is Instruction i)
+        for (int opc = 0; opc < optimization; opc++)
+            for (int ind = 0; ind < instrs.Count; ind++)
             {
-                if (i.Op is Operation.Neg && i.First is Constant<long> c)
+                var instr = instrs[ind];
+                var next = ind + 1 < instrs.Count ? instrs[ind + 1] : null;
+                if (instr is Instruction i)
                 {
-                    instrs[ind] = new Instruction(Operation.Equals, new Constant<long>(-c.Value, c.Type), null, i.Destination, i.File, i.Pos);
-                }
-                else if(i.Op is Operation.Add or Operation.Sub && i.Second is Constant<long> cc && cc.Value == 0 && i.Destination.Type.Size == i.First.Type.Size)
-                {
-                    instrs[ind] = new Instruction(Operation.Equals, i.First, null, i.Destination, i.File, i.Pos);
-                }
-                else if(i.Op is Operation.Add or Operation.Sub && i.Second is Constant<long> ccc && ccc.Value == 1 
-                        && next is Instruction nexti && i.First is Variable ivar
-                        && nexti.First is Variable nextv
-                        && nexti.Op is Operation.Equals && nexti.Destination == ivar 
-                        && nextv == i.Destination)
-                {
-                    instrs.RemoveAt(ind);
-                    var op = i.Op is Operation.Add ? Operation.Inc : Operation.Dec;
-                    instrs[ind] = new Instruction(op, null, null, nexti.Destination, next.File, next.Pos);
-                }
-                else if(CheckProducesConstant(i) && next is Instruction nextiv && UsesVar(nextiv, i.Destination)) 
-                {
-                    instrs.RemoveAt(ind);
-                    var leftc = i.First as Constant<long>;
-                    var rightc = i.Second as Constant<long>;
-                    var left = leftc!.Value;
-                    var right = rightc!.Value;
-                    var val = i.Op switch 
+                    if (i.Op is Operation.Neg && i.First is Constant<long> c)
                     {
-                        Operation.Add => left + right,
-                        Operation.Sub => left - right,
-                        Operation.Div => left / right,
-                        Operation.Mul => left * right,
-                    };
-                    var fst = nextiv.First == i.Destination ? new Constant<long>(val, i.Destination.Type) : nextiv.First;
-                    var snd = nextiv.Second == i.Destination ? new Constant<long>(val, i.Destination.Type) : nextiv.Second;
-                    instrs[ind] = new Instruction(nextiv.Op, fst, snd, nextiv.Destination, nextiv.File, nextiv.Pos); 
+                        instrs[ind] = new Instruction(Operation.Equals, new Constant<long>(-c.Value, c.Type), null, i.Destination, i.File, i.Pos);
+                    }
+                    else if (i.Op is Operation.Add or Operation.Sub && i.Second is Constant<long> cc && cc.Value == 0 && i.Destination.Type.Size == i.First.Type.Size)
+                    {
+                        instrs[ind] = new Instruction(Operation.Equals, i.First, null, i.Destination, i.File, i.Pos);
+                    }
+                    else if (i.Op is Operation.Add or Operation.Sub && i.Second is Constant<long> ccc && ccc.Value == 1
+                            && next is Instruction nexti && i.First is Variable ivar
+                            && nexti.First is Variable nextv
+                            && nexti.Op is Operation.Equals && nexti.Destination == ivar
+                            && nextv == i.Destination)
+                    {
+                        instrs.RemoveAt(ind);
+                        var op = i.Op is Operation.Add ? Operation.Inc : Operation.Dec;
+                        instrs[ind] = new Instruction(op, null, null, nexti.Destination, next.File, next.Pos);
+                    }
+                    else if (CheckProducesConstant(i) && next is Instruction nextiv && UsesVar(nextiv, i.Destination))
+                    {
+                        instrs.RemoveAt(ind);
+                        var leftc = i.First as Constant<long>;
+                        var rightc = i.Second as Constant<long>;
+                        var left = leftc!.Value;
+                        var right = rightc!.Value;
+                        var val = i.Op switch
+                        {
+                            Operation.Add => left + right,
+                            Operation.Sub => left - right,
+                            Operation.Div => left / right,
+                            Operation.Mul => left * right,
+                        };
+                        var fst = nextiv.First == i.Destination ? new Constant<long>(val, i.Destination.Type) : nextiv.First;
+                        var snd = nextiv.Second == i.Destination ? new Constant<long>(val, i.Destination.Type) : nextiv.Second;
+                        instrs[ind] = new Instruction(nextiv.Op, fst, snd, nextiv.Destination, nextiv.File, nextiv.Pos);
+                    }
+                    else if (false && CheckIsConst(i) && next is Instruction nextii && UsesVar(nextii, i.Destination))
+                    {
+                        int index = i.Destination.IsTemp ? ind : ind + 1;
+                        if (i.Destination.IsTemp) instrs.RemoveAt(ind);
+                        var fst = nextii.First == i.Destination ? i.First : nextii.First;
+                        var snd = nextii.Second == i.Destination ? i.First : nextii.Second;
+                        instrs[index] = new Instruction(nextii.Op, fst, snd, nextii.Destination, nextii.File, nextii.Pos);
+                    }
+                    else if(i.Op is Operation.Equals && i.First!.Type is PtrTypeInfo && i.Destination.Type is PtrTypeInfo)
+                    {
+                        if(ind + 1 < instrs.Count && instrs[ind + 1] is Instruction secnd) 
+                        {
+                            if(secnd.Op is Operation.Deref && secnd.First == i.Destination) 
+                            {
+                                instrs.RemoveAt(ind); 
+                                instrs.RemoveAt(ind); 
+                                var newinstr = new Instruction(Operation.Deref, i.First, null, secnd.Destination, i.File, i.Pos);
+                                instrs.Insert(ind, newinstr);
+                            }
+                        }
+                    }
                 }
-                else if(false && CheckIsConst(i) && next is Instruction nextii && UsesVar(nextii, i.Destination))
-                {
-                    int index = i.Destination.IsTemp ? ind : ind + 1;
-                    if(i.Destination.IsTemp) instrs.RemoveAt(ind);
-                    var fst = nextii.First == i.Destination ? i.First : nextii.First;
-                    var snd = nextii.Second == i.Destination ? i.First : nextii.Second;
-                    instrs[index] = new Instruction(nextii.Op, fst, snd, nextii.Destination, nextii.File, nextii.Pos); 
-                }
-                        
             }
+        var used = vars.ToDictionary(x => x, x => false);
+        foreach (var instr in instrs)
+        {
         }
     }
-    private static bool CheckIsConst(Instruction i) 
+    private static bool CheckIsConst(Instruction i)
     {
         return i.First is Constant<long> && i.Op is Operation.Equals;
     }
-    private static bool UsesVar(Instruction i, Variable v) 
+    private static bool UsesVar(Instruction i, Variable v)
     {
         return i.First == v || i.Second == v;
     }
-    private static bool CheckProducesConstant(Instruction i) 
+    private static bool UsesVar(InstructionBase instr, Variable v)
+    {
+        switch (instr)
+        {
+            case Instruction i: return i.First == v || i.Second == v || i.Destination == v; break;
+            case InterfaceCall icall: return icall.Dest == v || icall.Args.Any(x => x == v); break;
+            case FnCallInstruction call: return call.Dest == v || call.Args.Any(x => x == v); break;
+            case Jmp jmp: return jmp.Condition == v; break;
+            default: throw new();
+        }
+    }
+    private static bool CheckProducesConstant(Instruction i)
     {
         return i.First is Constant<long> && i.Second is Constant<long> && i.Op is Operation.Add or Operation.Mul or Operation.Sub or Operation.Div;
     }
@@ -608,6 +647,19 @@ public static class Compiler
                 ctx.Globals.Add(new Variable($"@vtable_{struc.Name}", new PtrTypeInfo(new PtrTypeInfo(ctx.Void))) { IsGlobal = true });
             struc.RecomputeSize();
         }
+        foreach(var type in ctx.Types.Select(x => x.Value).OfType<CustomTypeInfo>()) 
+            OffsetFields(type);
+    }
+    private static void OffsetFields(CustomTypeInfo type) 
+    {
+        var offset = 0;
+        foreach(var (_, fld) in type.Fields) 
+        {
+            if(fld.Type is CustomTypeInfo c) { OffsetFields(c); c.RecomputeSize(); }
+            fld.Offset = offset;
+            offset += fld.Type.Size; 
+        }
+        type.RecomputeSize();
     }
     private static void CheckStructsInterfaces(ref Context ctx, List<StructDefinitionStatement> structs)
     {
@@ -662,7 +714,7 @@ public static class Compiler
             Variables.Add(v);
             return v;
         }
-        public Variable NewTemp(TypeInfo type) 
+        public Variable NewTemp(TypeInfo type)
         {
             var v = NewVar($"t{TempCount++}", type);
             v.IsTemp = true;
@@ -693,6 +745,7 @@ public static class Compiler
                 var thisvar = fctx.Variables.First(x => x.Name == "this");
                 var vtable = ctx.Globals.First(x => x.Name == $"@vtable_{struc.Name}");
                 var vtableref = fctx.NewTemp(new PtrTypeInfo(vtable.Type));
+                vtable.RefTaken = true;
                 res.Add(new Instruction(Operation.Ref, vtable, null, vtableref, info.Body.File, info.Body.Pos));
                 SetField(thisvar, struc, struc.Fields["@vtable"], vtableref, ref fctx, ref ctx, res, info.Body.File, info.Body.Pos);
             }
@@ -994,7 +1047,15 @@ public static class Compiler
                 || (v = ctx.Globals.FirstOrDefault(x => x.Name == varr.Name)) is not null)
                 {
                     var addr = fctx.NewTemp(new PtrTypeInfo(v.Type));
+                    v.RefTaken = true;
                     instructions.Add(new Instruction(Operation.Ref, v, null, addr, expr.File, expr.Pos));
+                    return addr;
+                }
+                else if(ctx.Fns.FirstOrDefault(x => x.Name == varr.Name) is FnInfo fn) 
+                {
+                    var addr = fctx.NewTemp(fn.MakeType());
+                    fn.WasUsed = true;
+                    instructions.Add(new FnRefInstruction(fn, addr, expr.File, expr.Pos));
                     return addr;
                 }
                 else
@@ -1062,6 +1123,7 @@ public static class Compiler
                     else
                     {
                         var tempref = fctx.NewTemp(new PtrTypeInfo(res.Type));
+                        (res as Variable).RefTaken = true;
                         instructions.Add(new Instruction(Operation.Ref, res, null, tempref, exprs.File, exprs.Pos));
                         return tempref;
                     }
@@ -1117,6 +1179,7 @@ public static class Compiler
             var obj = fctx.NewTemp(ctx.Types["Obj"]);
             instructions.Add(new FnCallInstruction(newObj, new List<Source>() { new Constant<long>(typeInfo.Size, ctx.U64), typeoftypeinfo }, obj, file, pos));
             var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
+            obj.RefTaken = true;
             instructions.Add(new Instruction(Operation.Ref, obj, null, objref, file, pos));
             var objptr = GetField(objref, obj.Type, (obj.Type as CustomTypeInfo).Fields["data"], ref fctx, ref ctx, instructions, file, pos);
             var typeinfovar = fctx.NewTemp(new PtrTypeInfo(typeInfo));
@@ -1133,6 +1196,7 @@ public static class Compiler
             var typeInfo = new Variable($"__type_{type.Name}", ctx.Types["TypeInfo"]);
             typeInfo.IsGlobal = true;
             var res = fctx.NewTemp(new PtrTypeInfo(ctx.Types["TypeInfo"]));
+            typeInfo.RefTaken = true;
             instructions.Add(new Instruction(Operation.Ref, typeInfo, null, res, file, pos));
             return res;
         }
@@ -1169,6 +1233,7 @@ public static class Compiler
         var typeofexpr = CompileTypeOf(type, ref fctx, ref ctx, instructions, box.File, box.Pos);
         instructions.Add(new FnCallInstruction(allocatefn, new List<Source>() { new Constant<long>(type.Size, ctx.U64), typeofexpr }, obj, box.File, box.Pos));
         var objref = fctx.NewTemp(new PtrTypeInfo(obj.Type));
+        obj.RefTaken = true;
         instructions.Add(new Instruction(Operation.Ref, obj, null, objref, box.File, box.Pos));
         var objdata = GetField(objref, objtype, objtype.Fields["data"], ref fctx, ref ctx, instructions, box.File, box.Pos);
         var typedobjdata = fctx.NewTemp(new PtrTypeInfo(type));
@@ -1282,6 +1347,7 @@ public static class Compiler
                 var tempref = fctx.NewTemp(type);
                 var res = fctx.NewTemp(type);
                 var src = CompileExpression(member.Expr, ref fctx, ref ctx, instructions, null);
+                (src as Variable).RefTaken = true;
                 instructions.Add(new Instruction(Operation.Ref, src, null, temp, member.File, member.Pos));
                 instructions.Add(new Instruction(Operation.Add, temp, new Constant<long>(field.Offset, ctx.U64), tempref, member.File, member.Pos));
                 instructions.Add(new Instruction(Operation.Deref, tempref, null, res, member.File, member.Pos));
@@ -1302,9 +1368,11 @@ public static class Compiler
                 if (cust.Interfaces.Count > 0)
                 {
                     var destref = fctx.NewTemp(new PtrTypeInfo(cust));
+                    dest.RefTaken = true;
                     instructions.Add(new Instruction(Operation.Ref, dest, null, destref, newobj.File, newobj.Pos));
                     var vtable = ctx.Globals.First(x => x.Name == $"@vtable_{cust.Name}");
                     var vtableref = fctx.NewTemp(new PtrTypeInfo(vtable.Type));
+                    vtable.RefTaken = true;
                     instructions.Add(new Instruction(Operation.Ref, vtable, null, vtableref, newobj.File, newobj.Pos));
                     SetField(destref, cust, cust.Fields["@vtable"], vtableref, ref fctx, ref ctx, instructions, newobj.File, newobj.Pos);
                 }
@@ -1352,6 +1420,7 @@ public static class Compiler
                 fn.WasUsed = true;
                 var args = new List<Source>();
                 var ptr = fctx.NewTemp(new PtrTypeInfo(dest.Type));
+                dest.RefTaken = true;
                 instructions.Add(new Instruction(Operation.Ref, dest, null, ptr, newobj.File, newobj.Pos));
                 args.Add(ptr);
                 foreach (var (arg, (_, argtype)) in newobj.Args.Zip(fn.Params.Skip(1)))
@@ -1405,6 +1474,34 @@ public static class Compiler
             instrs.Add(new FnCallInstruction(fn, args, res, fncall.File, fncall.Pos));
             return res;
         }
+        else if(fctx.Variables.Any(x => x.Name == fncall.Name) || ctx.Globals.Any(x => x.Name == fncall.Name) ) 
+        {
+            var v = fctx.Variables.FirstOrDefault(x => x.Name == fncall.Name) ?? ctx.Globals.FirstOrDefault(x => x.Name == fncall.Name);
+            if(v!.Type is FnPtrTypeInfo fntype) 
+            {
+                var args = new List<Source>();
+                foreach(var (arg, type) in fncall.Args.Zip(fntype.Arguments)) 
+                {
+                    var argType = InferExpressionType(arg, ref fctx, ref ctx, type);
+                    if(!argType.Equals(type))
+                    {
+                        ctx.Errors.Add(new Error($"Cannot convert value of type {argType} to {type}", arg.File, arg.Pos));
+                    }
+                    args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs, argType));
+                }
+                if(fncall.Args.Count != fntype.Arguments.Count)
+                    ctx.Errors.Add(new Error($"Cant invoke variable {v}", fncall.File, fncall.Pos));
+                var dest = fntype.ReturnType.Equals(ctx.Void) ? null : fctx.NewTemp(fntype.ReturnType);
+                instrs.Add(new FnRefCall(v, fntype, args, dest, fncall.File, fncall.Pos));
+                return ((Source)dest) ?? new Constant<long>(0, ctx.I64);
+
+            }
+            else 
+            {
+                ctx.Errors.Add(new Error($"Cant invoke varialble of type {v.Type}", fncall.File, fncall.Pos));
+                return new Constant<long>(0, ctx.I64);
+            }
+        }
         else
         {
             ctx.Errors.Add(new Error($"Undefined function {fncall.Name}", fncall.File, fncall.Pos));
@@ -1437,12 +1534,25 @@ public static class Compiler
         {
             case VariableExpression varr:
                 {
-                    var type = InferExpressionType(varr, ref fctx, ref ctx, null);
-                    PtrTypeInfo destType = new PtrTypeInfo(type);
-                    var v = CompileExpression(varr, ref fctx, ref ctx, instrs, type);
-                    var res = fctx.NewTemp(destType);
-                    instrs.Add(new Instruction(Operation.Ref, v, null, res, r.File, r.Pos));
-                    return res;
+                    if(InferExpressionType(r, ref fctx, ref ctx, null) is FnPtrTypeInfo fntype)
+                    {
+                        var addr = fctx.NewTemp(fntype);
+                        string name = (r.Expr as VariableExpression)!.Name;
+                        var fn = ctx.Fns.FirstOrDefault(x => x.Name == name);
+                        fn!.WasUsed = true;
+                        instrs.Add(new FnRefInstruction(fn!, addr, r.File, r.Pos));
+                        return addr;
+                    }
+                    else 
+                    {
+                        var type = InferExpressionType(varr, ref fctx, ref ctx, null);
+                        PtrTypeInfo destType = new PtrTypeInfo(type);
+                        var v = CompileExpression(varr, ref fctx, ref ctx, instrs, type);
+                        var res = fctx.NewTemp(destType);
+                        (v as Variable).RefTaken = true;
+                        instrs.Add(new Instruction(Operation.Ref, v, null, res, r.File, r.Pos));
+                        return res;
+                    }
                 }
             case IndexExpression index:
                 return CompileRefOf(index, ref fctx, ref ctx, instrs);
@@ -1475,7 +1585,7 @@ public static class Compiler
         {
             if (target is not null && !v.Type.Equals(target))
             {
-                var res = fctx.NewTemp(new PtrTypeInfo(target));
+                var res = fctx.NewTemp((target));
                 instrs.Add(new Instruction(Operation.Equals, v, null, res, varr.File, varr.Pos));
                 return res;
             }
@@ -1824,11 +1934,31 @@ public static class Compiler
                     return ctx.I64;
                 }
             case RefExpression r:
+                {
+                if (r.Expr is VariableExpression v)
+                {
+                    if (fctx.Variables.Any(x => x.Name == v.Name) || ctx.Globals.Any(x => x.Name == v.Name))
+                        return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
+                        {
+                            PtrTypeInfo ptr => new PtrTypeInfo(ptr),
+                            TypeInfo t => new PtrTypeInfo(t),
+                        };
+                    else if(ctx.Fns.FirstOrDefault(x => x.Name == v.Name) is FnInfo fn) 
+                    {   
+                        return fn.MakeType();
+                    }
+                    else 
+                    {
+                        ctx.Errors.Add(new Error($"Undefined variable {v.Name}", v.File, v.Pos));
+                        return target ?? ctx.Void;
+                    }
+                }
                 return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
                 {
                     PtrTypeInfo ptr => new PtrTypeInfo(ptr),
                     TypeInfo t => new PtrTypeInfo(t),
                 };
+                }
             case BinaryExpression bin:
                 if (bin.Op is "==" or "!=" or "<=" or "<" or ">" or ">=" or "&&" or "||")
                     return ctx.Bool;
@@ -1940,8 +2070,8 @@ public static class Compiler
 
     private static TypeInfo InferNull(ref Context ctx, TypeInfo? target)
     {
-        if (target is PtrTypeInfo ptr)
-            return ptr;
+        if (target is PtrTypeInfo or FnPtrTypeInfo)
+            return target;
         return new PtrTypeInfo(ctx.Void);
     }
 

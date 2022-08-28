@@ -45,7 +45,7 @@ public class EnumInfo : TypeInfo
 }
 public class FieldInfo 
 {
-    public int Offset { get; private set; }
+    public int Offset { get; set; }
     public TypeInfo Type { get; private set; }
     public FieldInfo(int offset, TypeInfo type)
         => (Offset, Type) = (offset, type);

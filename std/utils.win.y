@@ -16,6 +16,7 @@ fn exit() { exit(0); }
 fn writechar(x: char)
 {
     let buff: *char = null;
+    let b = &buff;
     asm 
     {
         sub rsp, 8
@@ -31,6 +32,7 @@ fn writestr(str: *char, len: u64)
 fn clear()  
 {
     let buff: *char = null;
+    let b = &buff;
     enableVT();
     asm 
     {

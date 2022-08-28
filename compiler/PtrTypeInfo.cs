@@ -20,5 +20,12 @@ public class PtrTypeInfo : TypeInfo
         => $"*{Underlaying}";
 }
 
+public class FnPtrTypeInfo : TypeInfo 
+{
+    public List<TypeInfo> Arguments { get; private set; }
+    public TypeInfo ReturnType { get; private set; }
+    public FnPtrTypeInfo(List<TypeInfo> args, TypeInfo retType) =>
+        (Arguments, ReturnType, Size, Name) = (args, retType, 8, "fnptr");
+}
 
 

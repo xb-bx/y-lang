@@ -20,6 +20,8 @@ public class FnInfo
     }
     public override string ToString()
         => $"{Name}({string.Join(", ", Params.Select(x => x.type))}): {RetType}";
+    public FnPtrTypeInfo MakeType() 
+        => new FnPtrTypeInfo(Params.Select(x => x.type).ToList(), RetType);
 }
 
 
