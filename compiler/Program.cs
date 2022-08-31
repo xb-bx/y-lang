@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using static YLang.Helpers;
+using System.IO.Compression;
 
 namespace YLang;
 
@@ -43,7 +44,7 @@ public class Program
         Console.WriteLine(tokens.Count);
         var includes = new List<string>();
         includes.Add("std/utils.y");
-        if(!nogc) includes.Add("std/gc.y");
+        if (!nogc) includes.Add("std/gc.y");
         var statements = Parser.Parse(
             tokens,
             out var errors,
@@ -51,11 +52,11 @@ public class Program
             includes.ToArray()
         );
         //Console.WriteLine(Formater.Format(statements));
-        
+        Environment.SetEnvironmentVariable("INCLUDE", "fasm/win/INCLUDE");
         var cerrors = Compiler.Compile(
             statements,
             Path.ChangeExtension(source.FullName, ".asm"),
-            new CompilerSettings 
+            new CompilerSettings
             {
                 Optimize = optimize,
                 DumpIR = dumpIr,
@@ -98,4 +99,29 @@ public class Program
             );
         }
     }
+    ///<summary>Download latest fasm binaries</summary>
+    public static async Task DownloadFasm()
+    {
+        var winlink = "https://flatassembler.net/fasmw17330.zip";
+        var linuxlink = "https://flatassembler.net/fasm-1.73.30.tgz";
+        Directory.CreateDirectory("fasm");
+        var client = new HttpClient();
+        using (var windowsStream = await client.GetStreamAsync(winlink))
+        using (var arc = new ZipArchive(windowsStream))
+        {
+
+            Directory.CreateDirectory("fasm/win");
+            arc.ExtractToDirectory("fasm/win", true);
+        }
+        if(Environment.OSVersion.Platform is PlatformID.Unix)
+        using (var linuxStream = await client.GetStreamAsync(linuxlink))
+        using (var arc = new GZipStream(linuxStream, CompressionMode.Decompress))
+        {
+            Tgz.Unzip(arc, "fasm/linux");
+            RunAndWaitForExitCode("/bin/bash", $"-c \"chmod +x fasm/linux/fasm/fasm.x64\"");
+        }
+
+
+    }
 }
+
