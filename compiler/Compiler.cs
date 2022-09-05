@@ -44,11 +44,11 @@ public static class Compiler
                     return null;
                 }
             }
-            else if(typeexpr is FnPtrType fnptr) 
+            else if (typeexpr is FnPtrType fnptr)
             {
-                TypeInfo CheckType(Context ctx, TypeExpression type, TypeInfo? typeinfo) 
+                TypeInfo CheckType(Context ctx, TypeExpression type, TypeInfo? typeinfo)
                 {
-                    if(typeinfo is null) ctx.Errors.Add(new Error($"Unknown type {type}", type.File, type.Pos));
+                    if (typeinfo is null) ctx.Errors.Add(new Error($"Unknown type {type}", type.File, type.Pos));
                     return typeinfo ?? ctx.Void;
                 }
                 var ct = this;
@@ -154,7 +154,7 @@ public static class Compiler
             return ctx.Errors;
         }
         var chartype = ctx.Char;
-        if (settings.NullChecks && ctx.Fns.FirstOrDefault(x => x.Name == "writestr" && x.Params.Count == 1 && x.Params[0].type.Equals(new PtrTypeInfo(chartype))) is FnInfo writestrfn)
+        if (settings.NullChecks && ctx.Fns.FirstOrDefault(x => x.Name == "print" && x.Params.Count == 1 && x.Params[0].type.Equals(new PtrTypeInfo(chartype))) is FnInfo writestrfn)
         {
             writestrfn.WasUsed = true;
         }
@@ -200,7 +200,7 @@ public static class Compiler
         if (settings.Target is Target.Windows)
         {
             result
-                .AppendLine("format PE64 CONSOLE")
+                .AppendLine($"format PE64 {(settings.NoConsole ? "GUI" : "CONSOLE")}")
                 .AppendLine("entry __start")
                 .AppendLine("include 'win64axp.inc'")
                 .AppendLine("True = 1")
@@ -217,9 +217,9 @@ public static class Compiler
                     .AppendLine("__nre:")
                     .AppendLine("push rdx")
                     .AppendLine("push rcx")
-                    .AppendLine("call writestrptrchar")
+                    .AppendLine("call printptrchar")
                     .AppendLine("add rsp, 8")
-                    .AppendLine("call writestrptrchar")
+                    .AppendLine("call printptrchar")
                     .AppendLine("add rsp, 8")
                     .AppendLine("jmp __exitprog");
             result.AppendLine(string.Join('\n', res));
@@ -308,7 +308,9 @@ public static class Compiler
                     result.Append("0,");
                     i++;
                 }
-                result.Append($"vtable_{struc.Name}_{interfac.Name}");
+                if (interfac.Methods.Count > 0)
+                    result.Append($"vtable_{struc.Name}_{interfac.Name}");
+                else result.Append("0");
                 i = interfac.Number;
                 if (interfac.Number < struc.Interfaces.Last().Number)
                     result.Append(',');
@@ -444,14 +446,14 @@ public static class Compiler
                         var snd = nextii.Second == i.Destination ? i.First : nextii.Second;
                         instrs[index] = new Instruction(nextii.Op, fst, snd, nextii.Destination, nextii.File, nextii.Pos);
                     }
-                    else if(i.Op is Operation.Equals && i.First!.Type is PtrTypeInfo && i.Destination.Type is PtrTypeInfo)
+                    else if (i.Op is Operation.Equals && i.First!.Type is PtrTypeInfo && i.Destination.Type is PtrTypeInfo)
                     {
-                        if(ind + 1 < instrs.Count && instrs[ind + 1] is Instruction secnd) 
+                        if (ind + 1 < instrs.Count && instrs[ind + 1] is Instruction secnd)
                         {
-                            if(secnd.Op is Operation.Deref && secnd.First == i.Destination) 
+                            if (secnd.Op is Operation.Deref && secnd.First == i.Destination)
                             {
-                                instrs.RemoveAt(ind); 
-                                instrs.RemoveAt(ind); 
+                                instrs.RemoveAt(ind);
+                                instrs.RemoveAt(ind);
                                 var newinstr = new Instruction(Operation.Deref, i.First, null, secnd.Destination, i.File, i.Pos);
                                 instrs.Insert(ind, newinstr);
                             }
@@ -647,17 +649,17 @@ public static class Compiler
                 ctx.Globals.Add(new Variable($"@vtable_{struc.Name}", new PtrTypeInfo(new PtrTypeInfo(ctx.Void))) { IsGlobal = true });
             struc.RecomputeSize();
         }
-        foreach(var type in ctx.Types.Select(x => x.Value).OfType<CustomTypeInfo>()) 
+        foreach (var type in ctx.Types.Select(x => x.Value).OfType<CustomTypeInfo>())
             OffsetFields(type);
     }
-    private static void OffsetFields(CustomTypeInfo type) 
+    private static void OffsetFields(CustomTypeInfo type)
     {
         var offset = 0;
-        foreach(var (_, fld) in type.Fields) 
+        foreach (var (_, fld) in type.Fields)
         {
-            if(fld.Type is CustomTypeInfo c) { OffsetFields(c); c.RecomputeSize(); }
+            if (fld.Type is CustomTypeInfo c) { OffsetFields(c); c.RecomputeSize(); }
             fld.Offset = offset;
-            offset += fld.Type.Size; 
+            offset += fld.Type.Size;
         }
         type.RecomputeSize();
     }
@@ -1039,6 +1041,7 @@ public static class Compiler
     }
     private static Variable CompileRefOf(Expression expr, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
+
         switch (expr)
         {
             case VariableExpression varr:
@@ -1051,7 +1054,7 @@ public static class Compiler
                     instructions.Add(new Instruction(Operation.Ref, v, null, addr, expr.File, expr.Pos));
                     return addr;
                 }
-                else if(ctx.Fns.FirstOrDefault(x => x.Name == varr.Name) is FnInfo fn) 
+                else if (ctx.Fns.FirstOrDefault(x => x.Name == varr.Name) is FnInfo fn)
                 {
                     var addr = fctx.NewTemp(fn.MakeType());
                     fn.WasUsed = true;
@@ -1065,6 +1068,13 @@ public static class Compiler
                 break;
             case MemberAccessExpression member:
                 {
+                    if(member.Expr is VariableExpression typename && ctx.Types.TryGetValue(typename.Name, out var ttype) && ttype is CustomTypeInfo customtype && (customtype.Methods.FirstOrDefault(x => x.Name == $"{customtype.Name}.{member.MemberName}") is FnInfo fninfo))
+                    {
+                        var addr = fctx.NewTemp(fninfo.MakeType());
+                        fninfo.WasUsed = true;
+                        instructions.Add(new FnRefInstruction(fninfo, addr, member.File, member.Pos));
+                        return addr;
+                    }
                     var type = InferExpressionType(member.Expr, ref fctx, ref ctx, null);
                     if (type is CustomTypeInfo cust && cust.Fields.TryGetValue(member.MemberName, out FieldInfo field))
                     {
@@ -1155,7 +1165,16 @@ public static class Compiler
             MethodCallExpression method => CompileMethodCall(method, ref fctx, ref ctx, instructions),
             BoxExpression box => CompileBoxExpression(box, ref fctx, ref ctx, instructions),
             TypeOfExpression typeofexpr => CompileTypeOf(typeofexpr, ref fctx, ref ctx, instructions),
+            StackallocExpression salloc => CompileStackalloc(salloc, ref fctx, ref ctx, instructions),
         };
+    }
+    private static Source CompileStackalloc(StackallocExpression salloc, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions) 
+    {
+        var type = InferExpressionType(salloc, ref fctx, ref ctx, null);
+        var res = fctx.NewTemp(type);
+        if(type is PtrTypeInfo ptr)
+            instructions.Add(new StackallocInstruction(res, salloc.Size, ptr.Underlaying, salloc.File, salloc.Pos));
+        return res;
     }
     private static Source CompileTypeOf(TypeOfExpression typeOf, ref FunctionContext fctx, ref Context ctx, List<InstructionBase> instructions)
     {
@@ -1474,29 +1493,29 @@ public static class Compiler
             instrs.Add(new FnCallInstruction(fn, args, res, fncall.File, fncall.Pos));
             return res;
         }
-        else if(fctx.Variables.Any(x => x.Name == fncall.Name) || ctx.Globals.Any(x => x.Name == fncall.Name) ) 
+        else if (fctx.Variables.Any(x => x.Name == fncall.Name) || ctx.Globals.Any(x => x.Name == fncall.Name))
         {
             var v = fctx.Variables.FirstOrDefault(x => x.Name == fncall.Name) ?? ctx.Globals.FirstOrDefault(x => x.Name == fncall.Name);
-            if(v!.Type is FnPtrTypeInfo fntype) 
+            if (v!.Type is FnPtrTypeInfo fntype)
             {
                 var args = new List<Source>();
-                foreach(var (arg, type) in fncall.Args.Zip(fntype.Arguments)) 
+                foreach (var (arg, type) in fncall.Args.Zip(fntype.Arguments))
                 {
                     var argType = InferExpressionType(arg, ref fctx, ref ctx, type);
-                    if(!argType.Equals(type))
+                    if (!argType.Equals(type))
                     {
                         ctx.Errors.Add(new Error($"Cannot convert value of type {argType} to {type}", arg.File, arg.Pos));
                     }
                     args.Add(CompileExpression(arg, ref fctx, ref ctx, instrs, argType));
                 }
-                if(fncall.Args.Count != fntype.Arguments.Count)
+                if (fncall.Args.Count != fntype.Arguments.Count)
                     ctx.Errors.Add(new Error($"Cant invoke variable {v}", fncall.File, fncall.Pos));
                 var dest = fntype.ReturnType.Equals(ctx.Void) ? null : fctx.NewTemp(fntype.ReturnType);
                 instrs.Add(new FnRefCall(v, fntype, args, dest, fncall.File, fncall.Pos));
                 return ((Source)dest) ?? new Constant<long>(0, ctx.I64);
 
             }
-            else 
+            else
             {
                 ctx.Errors.Add(new Error($"Cant invoke varialble of type {v.Type}", fncall.File, fncall.Pos));
                 return new Constant<long>(0, ctx.I64);
@@ -1534,7 +1553,7 @@ public static class Compiler
         {
             case VariableExpression varr:
                 {
-                    if(InferExpressionType(r, ref fctx, ref ctx, null) is FnPtrTypeInfo fntype)
+                    if (InferExpressionType(r, ref fctx, ref ctx, null) is FnPtrTypeInfo fntype)
                     {
                         var addr = fctx.NewTemp(fntype);
                         string name = (r.Expr as VariableExpression)!.Name;
@@ -1543,7 +1562,7 @@ public static class Compiler
                         instrs.Add(new FnRefInstruction(fn!, addr, r.File, r.Pos));
                         return addr;
                     }
-                    else 
+                    else
                     {
                         var type = InferExpressionType(varr, ref fctx, ref ctx, null);
                         PtrTypeInfo destType = new PtrTypeInfo(type);
@@ -1757,6 +1776,8 @@ public static class Compiler
                 ctx.Errors.Add(new Error($"Cannot convert {cust} to {interf}", expr.File, expr.Pos));
             }
         }
+        else if (target is PtrTypeInfo ptrt && ptrt.Underlaying.Equals(ctx.Void) && type is PtrTypeInfo) 
+            return target;
         return type;
     }
     private static TypeInfo FirstInferExpressionType(Expression expr, ref FunctionContext fctx, ref Context ctx, TypeInfo? target)
@@ -1779,6 +1800,16 @@ public static class Compiler
                 return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : new PtrTypeInfo(ctx.Char);
             case BoxExpression box:
                 return ctx.Types["Obj"];
+            case StackallocExpression salloc:
+                {
+                    var type = ctx.GetTypeInfo(salloc.Type);
+                    if(type is null) 
+                    {
+                        ctx.Errors.Add(new Error($"Unknown type {salloc.Type}", salloc.File, salloc.Type.Pos));
+                        return ctx.Void;
+                    }
+                    return new PtrTypeInfo(type);
+                }
             case CastExpression cast:
                 {
                     if (ctx.GetTypeInfo(cast.Type) is TypeInfo type)
@@ -1935,29 +1966,41 @@ public static class Compiler
                 }
             case RefExpression r:
                 {
-                if (r.Expr is VariableExpression v)
-                {
-                    if (fctx.Variables.Any(x => x.Name == v.Name) || ctx.Globals.Any(x => x.Name == v.Name))
-                        return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
-                        {
-                            PtrTypeInfo ptr => new PtrTypeInfo(ptr),
-                            TypeInfo t => new PtrTypeInfo(t),
-                        };
-                    else if(ctx.Fns.FirstOrDefault(x => x.Name == v.Name) is FnInfo fn) 
-                    {   
-                        return fn.MakeType();
-                    }
-                    else 
+                    if (r.Expr is VariableExpression v)
                     {
-                        ctx.Errors.Add(new Error($"Undefined variable {v.Name}", v.File, v.Pos));
-                        return target ?? ctx.Void;
+                        if (fctx.Variables.Any(x => x.Name == v.Name) || ctx.Globals.Any(x => x.Name == v.Name))
+                            return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
+                            {
+                                PtrTypeInfo ptr => new PtrTypeInfo(ptr),
+                                TypeInfo t => new PtrTypeInfo(t),
+                            };
+                        else if (ctx.Fns.FirstOrDefault(x => x.Name == v.Name) is FnInfo fn)
+                        {
+                            return fn.MakeType();
+                        }
+                        else
+                        {
+                            ctx.Errors.Add(new Error($"Undefined variable {v.Name}", v.File, v.Pos));
+                            return target ?? ctx.Void;
+                        }
                     }
-                }
-                return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
-                {
-                    PtrTypeInfo ptr => new PtrTypeInfo(ptr),
-                    TypeInfo t => new PtrTypeInfo(t),
-                };
+                    else if (r.Expr is MemberAccessExpression member && member.Expr is VariableExpression typename) 
+                    {
+                        if(ctx.Types.TryGetValue(typename.Name, out var type) && type is CustomTypeInfo custom) 
+                        {
+                            var name = $"{custom.Name}.{member.MemberName}";
+                            var fn = custom.Methods.FirstOrDefault(x => x.Name == name);
+                            if(fn is null)
+                                return ctx.Void;
+                            return fn.MakeType();
+                        }
+                        else return ctx.Void;
+                    }
+                    return target?.Equals(new PtrTypeInfo(ctx.Void)) == true ? new PtrTypeInfo(ctx.Void) : InferExpressionType(r.Expr, ref fctx, ref ctx, null) switch
+                    {
+                        PtrTypeInfo ptr => new PtrTypeInfo(ptr),
+                        TypeInfo t => new PtrTypeInfo(t),
+                    };
                 }
             case BinaryExpression bin:
                 if (bin.Op is "==" or "!=" or "<=" or "<" or ">" or ">=" or "&&" or "||")

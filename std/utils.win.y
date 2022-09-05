@@ -13,7 +13,7 @@ dllimport "kernel32.dll"
     extern fn ReadConsoleA(handle: *void, buffer: *u8, count: u32, read: *u32, inputControl: *void);
 }
 fn exit() { exit(0); }
-fn writechar(x: char)
+fn print(x: char)
 {
     let buff: *char = null;
     let b = &buff;
@@ -25,7 +25,7 @@ fn writechar(x: char)
     buff[0] = x;
     WriteConsoleA(GetStdHandle(-11), buff, 1, null);
 }
-fn writestr(str: *char, len: u64)
+fn print(str: *char, len: u64)
 {
     WriteConsoleA(GetStdHandle(-11), str, len, null);
 }
@@ -60,7 +60,7 @@ fn clear()
         inc rax
         mov [rbp - 8], rsp
     }
-    writestr(buff, 10);
+    print(buff, 10);
 }
 fn enableVT()  
 {

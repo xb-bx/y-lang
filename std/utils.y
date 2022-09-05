@@ -13,27 +13,20 @@ fn streq(str1: *char, str2: *char): bool
     }
     ret true;
 }
-fn writestr(str: *char)  
+fn print(str: *char)  
 {
     let len = strlen(str);
-    writestr(str, len);
+    print(str, len);
 }
-fn writenum(x: u64)
+fn print(x: u64)
 {
     if x == 0
     {
-        writestr("0", 1);
+        print("0", 1);
         ret;
     }
-    let buff: *char = null;
-    let secondbuff: *char = null;
-    asm 
-    {
-        sub rsp, 32
-        mov [rbp - 16], rsp
-        sub rsp, 32
-        mov [rbp - 24], rsp
-    }
+    let buff: *char = stackalloc char[64];
+    let secondbuff: *char = stackalloc char[64];
     let i: u64 = 0;
     let index: u64 = 0;
     while x > 0 
@@ -51,24 +44,17 @@ fn writenum(x: u64)
         index = index - 1;
         i = i + 1;
     }
-    writestr(secondbuff, len);
+    print(secondbuff, len);
 }
-fn writenum(x: i64)
+fn print(x: i64)
 {
     if x == 0
     {
-        writestr("0", 1);
+        print("0", 1);
         ret;
     }
-    let buff: *char = null;
-    let secondbuff: *char = null;
-    asm 
-    {
-        sub rsp, 64
-        mov [rbp - 16], rsp
-        sub rsp, 64
-        mov [rbp - 24], rsp
-    }
+    let buff: *char = stackalloc char[64];
+    let secondbuff: *char = stackalloc char[64];
     let i: u64 = 0;
     let index: u64 = 0;
     let wasneg = false;
@@ -97,25 +83,18 @@ fn writenum(x: i64)
         index = index - 1;
         i = i + 1;
     }
-    writestr(secondbuff, len);
+    print(secondbuff, len);
 }
-fn writenum(x: i32)
+fn print(x: i32)
 {
     if x == 0
     {
-        writestr("0", 1);
+        print("0", 1);
         ret;
     }
     asm {;START}
-    let buff: *char = null;
-    let secondbuff: *char = null;
-    asm 
-    {
-        sub rsp, 32
-        mov [rbp - 16], rsp
-        sub rsp, 32
-        mov [rbp - 24], rsp
-    }
+    let buff: *char = stackalloc char[32];
+    let secondbuff: *char = stackalloc char[32];
     let i: u64 = 0;
     let index: u64 = 0;
     let wasneg = false;
@@ -144,7 +123,7 @@ fn writenum(x: i32)
         index = index - 1;
         i = i + 1;
     }
-    writestr(secondbuff, len);
+    print(secondbuff, len);
 }
 fn pow(x: i32, pow:i32): i32
 {
@@ -174,6 +153,31 @@ fn parsei32(str: *char): i32
         x = x + 1;
     }
     ret res;
+}
+fn println(str: *char) 
+{
+    print(str);
+    print("\r\n", 2);
+}
+fn println(val: i32) 
+{
+    print(val);
+    print("\r\n", 2);
+}
+fn println(val: i64) 
+{
+    print(val);
+    print("\r\n", 2);
+}
+fn println(val: u64) 
+{
+    print(val);
+    print("\r\n", 2);
+}
+fn println(val: u32) 
+{
+    print(val);
+    print("\r\n", 2);
 }
 fn strlen(str: *char): u32 
 {

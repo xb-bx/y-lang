@@ -1,4 +1,4 @@
-fn writestr(str: *char, len: u64)
+fn print(str: *char, len: u64)
 {
     asm 
     {
@@ -9,7 +9,7 @@ fn writestr(str: *char, len: u64)
         syscall
     }
 }
-fn writechar(c: char) 
+fn print(c: char) 
 {
     asm 
     {
@@ -48,7 +48,7 @@ fn clear()
         mov byte[rax], 0x4a
         mov [rbp - 8], rsp 
     }
-    writestr(str);
+    print(str);
 }
 fn alloc(size: u64): *u8 
 { 

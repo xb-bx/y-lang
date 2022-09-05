@@ -33,6 +33,7 @@ public static class Lexer
         "interface",
         "union",
         "enum",
+        "stackalloc",
     };
     private static readonly HashSet<char> brackets = new()
     {

@@ -40,7 +40,7 @@ fn setcursor()
         mov byte[rsp + 5], 'H'
         mov [rbp - 8], rsp
     }
-    writestr(buff, 6);
+    print(buff, 6);
 }
 
 fn main() 
@@ -60,7 +60,7 @@ fn main()
         input();
         movesnake();
         fillmap();
-        writestr(map, len);
+        print(map, len);
         Sleep(sleeptime);
     }
 }
@@ -116,8 +116,8 @@ fn movesnake()
         if snake[i].equals(head)
         {
             clear();
-            writestr("Your score is: ", 15);
-            writenum(cast(snakelen - 2, i32));
+            print("Your score is: ", 15);
+            print(cast(snakelen - 2, i32));
             asm 
             {
                 invoke ExitProcess, 0
@@ -150,7 +150,7 @@ fn nextrnd() : i32
 }
 fn nl() 
 {
-    writestr("\r\n", 2);
+    print("\r\n", 2);
 }
 fn initsnake() 
 {
@@ -158,28 +158,31 @@ fn initsnake()
     snake[0] = new Point(2, 2);
     snake[1] = new Point(2, 2);
 }
+enum Key 
+{
+    Left = 0x25,
+    Up,
+    Right,
+    Down
+}
 fn input() 
 {
-    let left = 0x25;
-    let right = 0x27;
-    let up = 0x26;
-    let down = 0x28;
-    if get_key_state(left) != 0 && dir.x != 1
+    if get_key_state(Key.Left) != 0 && dir.x != 1
     {
         dir.x = -1;
         dir.y = 0;
     }
-    else if get_key_state(right) != 0  && dir.x != -1
+    else if get_key_state(Key.Right) != 0  && dir.x != -1
     {
         dir.x = 1;
         dir.y = 0;
     }
-    else if get_key_state(up) != 0 && dir.y != 1 
+    else if get_key_state(Key.Up) != 0 && dir.y != 1 
     {
         dir.x = 0;
         dir.y = -1;
     } 
-    else if get_key_state(down) != 0 && dir.y != -1
+    else if get_key_state(Key.Down) != 0 && dir.y != -1
     {
         dir.x = 0;
         dir.y = 1;

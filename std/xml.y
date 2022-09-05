@@ -148,9 +148,13 @@ struct XmlParser
     builder: StringBuilder;
     fn parseXml(xml: *char): *XmlNode 
     {
+        ret parseXml(xml, cast(strlen(xml), u64));
+    }
+    fn parseXml(xml: *char, len: u64): *XmlNode 
+    {
         this.xml = xml;
         this.builder = new StringBuilder();
-        this.len = cast(strlen(xml), u64);
+        this.len = len;
         this.pos = 0;
         this.wasErr = false;
         this.error = null;
@@ -158,7 +162,6 @@ struct XmlParser
     }   
     fn parseNode(): *XmlNode 
     {
-        writestr("NODE\r\n");
         this.parseChar('<');
         let id = this.parseId();
         let node = xmlNewNode(id);
@@ -179,18 +182,9 @@ struct XmlParser
         }
         else ok = false;
         }
-        writenum(this.pos);
-        writestr("\r\n");
         this.parseChar('<');
-        writenum(this.pos);
-        writestr("\r\n");
         this.parseChar('/');
-        writenum(this.pos);
-        writestr("\r\n");
-        writenum(cast(this.xml[this.pos], i32));
         this.parseId();
-        writenum(this.pos);
-        writestr("\r\n");
         this.parseChar('>');
         ret node;
     }

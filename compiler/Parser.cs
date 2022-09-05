@@ -687,6 +687,7 @@ public static class Parser
                 .OrKeyword("box")
                 .OrKeyword("typeof")
                 .OrKeyword("null")
+                .OrKeyword("stackalloc")
                 .Or(MatchGroup.LP)
                 .OrKeyword("false")
                 .OrKeyword("true"), Token.UndefinedId);
@@ -708,6 +709,7 @@ public static class Parser
             { Type: TokenType.Keyword, Value: "false", Pos: var pos, File: var file } => new BoolExpression(false, pos, file),
             { Type: TokenType.Keyword, Value: "true", Pos: var pos, File: var file } => new BoolExpression(true, pos, file),
             { Type: TokenType.Keyword, Value: "null", Pos: var pos, File: var file } => new NullExpression(pos, file),
+            { Type: TokenType.Keyword, Value: "stackalloc", Pos: var pos } => Stackalloc(ref ctx, pos),
             _ => throw new()
         };
         while (ctx.Match(MatchGroup.Match(TokenType.Bracket, "(").Or(TokenType.Bracket, "[").Or(TokenType.Dot), out var token))
@@ -727,6 +729,24 @@ public static class Parser
             };
         }
         return expr;
+    }
+
+    private static Expression Stackalloc(ref Context ctx,Position pos)
+    {
+        var type = ParseType(ref ctx);
+        ctx.ForceMatch(MatchGroup.LBR);
+        var size = Expression(ref ctx);
+        int num = 0;
+        if(size is IntegerExpression i) 
+        {
+            num = (int)i.Value;
+        }
+        else 
+        {
+            ctx.Errors.Add(new Error("Expected integer", size.File, size.Pos));
+        }
+        ctx.ForceMatch(MatchGroup.RBR);
+        return new StackallocExpression(type, num, size.File, pos);
     }
 
     private static Expression TypeOf(ref Context ctx, Position pos)

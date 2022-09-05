@@ -170,6 +170,14 @@ public class IRCompiler
                     //SaveCached(lines);
                     lines.AddRange(asm.Asm);
                     break;
+                case StackallocInstruction sa: 
+                    {
+                        var size = sa.Size * sa.Type.Size;
+                        size = size % 16 == 0 ? size : size + (16 - (size % 16));
+                        lines.Add($"sub rsp, {size}; {sa.Size}");
+                        SaveVar(lines, sa.Destination, "qword", "rsp");
+                    }
+                    break;
                 case Jmp jmp:
                     {
                         //SaveCached(lines);

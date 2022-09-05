@@ -1,5 +1,4 @@
 include "std/StringBuilder.y";
-include "xml.y";
 dllimport "libui.dll" 
 {
     extern fn uiInit(opts: *uiInitOpts): *char;
@@ -29,11 +28,9 @@ dllimport "libui.dll"
 struct uiControl {}
 interface IControl 
 {
-    fn nothing();
 }
 struct uiBox : IControl 
 {
-    fn nothing() {}
     fn append(control: *IControl, stretchy: bool) 
     {
         uiBoxAppend(this, control, stretchy);
@@ -53,7 +50,6 @@ struct uiBox : IControl
 }
 struct uiLabel : IControl 
 {
-    fn nothing() {}
     fn text(): *char 
     {
         ret uiLabelText(this);
@@ -66,7 +62,6 @@ struct uiLabel : IControl
 
 struct uiButton : IControl 
 {
-    fn nothing() {}
     fn onClick(handler: fn (*uiButton, *void): void, data: *void) 
     {
         uiButtonOnClicked(this, handler, data);
@@ -83,7 +78,6 @@ struct uiButton : IControl
 struct uiWindow : IControl
 { 
     bullshit: u64;
-    fn nothing() {}
     fn uiControl(): *uiControl
     {
         ret cast(this, *uiControl);
