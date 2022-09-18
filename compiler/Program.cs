@@ -44,7 +44,6 @@ public class Program
             Path.GetFileName(source.FullName),
             out var lerrors
         );
-        //            tokens.ForEach(x => Console.WriteLine(x));
         lerrors.ForEach(x => Console.WriteLine(x));
         Console.WriteLine(tokens.Count);
         var includes = new List<string>();

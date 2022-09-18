@@ -107,6 +107,9 @@ public static class Lexer
                         res.Add(id);
                     }
                     break;
+                case char comm when comm is '/' && pos + 1 < code.Length && code[pos+1] is '/' or '*':
+                    Comment(ref ctx);
+                    break;
                 case char c when char.IsDigit(c):
                     res.Add(Int(ref ctx));
                     break;
@@ -161,6 +164,54 @@ public static class Lexer
         }
         res.Add(new Token { Type = TokenType.EOF, Value = "EOF", Pos = curPos, File = ctx.File });
         return res;
+    }
+    private static void MultilineComment(ref Context ctx) 
+    {
+        ref int pos = ref ctx.Pos;
+        ref Position cpos = ref ctx.CurrentPos;
+        pos++;
+        cpos.Column++;
+        while (pos < ctx.Code.Length) 
+        {
+            if (ctx.Code[pos] == '*' && pos + 1 < ctx.Code.Length && ctx.Code[pos + 1] == '/')
+            {
+                pos += 2;
+                cpos.Column += 2;
+                break;
+            }
+            else if (ctx.Code[pos] == '\n') 
+            {
+                pos++;
+                cpos.Column = 1;
+                cpos.Line++;
+            }
+            else { pos++; cpos.Column++; }
+        }
+    }
+    private static void Comment(ref Context ctx) 
+    { 
+        ref int pos = ref ctx.Pos;
+        ref int cpos = ref ctx.CurrentPos.Column;
+        pos++;
+        cpos++;
+        if (pos < ctx.Code.Length && ctx.Code[pos] == '*')
+        {
+            MultilineComment(ref ctx);
+        }
+        else if (pos < ctx.Code.Length && ctx.Code[pos] == '/')
+        {
+            pos++;
+            cpos++;
+            while (pos < ctx.Code.Length && ctx.Code[pos] is not '\n')
+            { 
+                pos++;
+                cpos++;
+            }
+        }
+        else 
+        {
+            ctx.Errors.Add(new Error("Expected single-line or multi-line comment", ctx.File, ctx.CurrentPos));
+        }
     }
     private static Token Id(ref Context ctx)
     {
