@@ -571,7 +571,10 @@ public static class Compiler
                     else
                     {
                         fields.Add(field.Name, new FieldInfo(offset, type));
-                        offset += type.Size;
+                        if (type.Size == 0)
+                            offset++;
+                        else 
+                            offset += type.Size;
                     }
                 }
                 else if (sfield is UnionDefinitionStatement union)
@@ -655,11 +658,32 @@ public static class Compiler
     private static void OffsetFields(CustomTypeInfo type)
     {
         var offset = 0;
+        var prevOffset = -1;
+        var oldOffset = -1;
+        var unionSize = 0;
         foreach (var (_, fld) in type.Fields)
         {
             if (fld.Type is CustomTypeInfo c) { OffsetFields(c); c.RecomputeSize(); }
-            fld.Offset = offset;
-            offset += fld.Type.Size;
+            if (fld.Offset == prevOffset) 
+            {
+                fld.Offset = oldOffset;
+                if (fld.Type.Size > unionSize) 
+                {
+                    unionSize = fld.Type.Size;
+                }
+            }
+            else 
+            {
+                if (unionSize != 0)
+                {
+                    offset += unionSize;
+                    unionSize = 0;
+                }
+                prevOffset = fld.Offset;
+                fld.Offset = offset;
+                oldOffset = offset;
+                offset += fld.Type.Size;
+            }
         }
         type.RecomputeSize();
     }
